@@ -1,7 +1,8 @@
 flask
 opencv-python-headless
 numpy
-mediapipe
+mediapipe==0.10.9
 ultralytics
 gunicorn
 python-dotenv
+protobuf==3.20.3
