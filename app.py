@@ -8,7 +8,7 @@ import os
 import socket  # IP nikalne ke liye
 import base64  # Mobile frame decode karne ke liye
 from datetime import datetime
-import sounddevice as sd
+
 import threading
 import smtplib
 from email.mime.text import MIMEText
@@ -37,6 +37,28 @@ if not os.path.exists(LOG_FOLDER): os.makedirs(LOG_FOLDER)
 audio_alert = False
 student_details = {"name": "Unknown", "roll": "N/A", "camera_type": "Laptop"}
 
+# --- Is code ko 'import sounddevice as sd' ki jagah paste karein ---
+try:
+    import sounddevice as sd
+except (OSError, ImportError):
+    print("⚠️ Server par Audio Device nahi mila. Audio disabled.")
+    # Ye ek Nakli (Dummy) Audio system hai taaki code crash na ho
+    class MockSD:
+        def query_devices(self, kind=None): return 0
+        def rec(self, *args, **kwargs): pass
+        def wait(self): pass
+        def stop(self): pass
+        def InputStream(self, *args, **kwargs): 
+            class MockStream:
+                def start(self): pass
+                def stop(self): pass
+                def close(self): pass
+                def __enter__(self): return self
+                def __exit__(self, *args): pass
+            return MockStream()
+            
+    sd = MockSD()
+# -------------------------------------------------------------------
 # --- HELPER: GET LOCAL IP (QR Code ke liye) ---
 def get_ip_address():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
