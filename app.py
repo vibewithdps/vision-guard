@@ -276,11 +276,10 @@ system = VisionGuardSystem()
 # --- ROUTES ---
 
 @app.route('/')
-def login_page(): 
-    # Automatically IP address nikalo taaki QR code ban sake
-    ip = get_ip_address()
-    mobile_url = f"http://{ip}:5001/mobile_scanner"
-    return render_template('login.html', mobile_url=mobile_url)
+def login_page():
+    # Ab hum koi IP ya QR code calculate nahi karenge
+    # Seedha Login page dikhayenge sabko (Mobile aur Laptop dono ko)
+    return render_template('login.html')
 
 # --- app.py ke andar ye wala function update karo ---
 
