@@ -1,0 +1,5 @@
+venv/
+__pycache__/
+cheating_evidence/
+.env
+.DS_Store

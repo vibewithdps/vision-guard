@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Scanner</title>
+    <style>
+        body { background: black; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; }
+        
+        /* Video dikhna chahiye */
+        video {
+            width: 90%;
+            max-width: 400px;
+            border: 2px solid #0f0;
+            border-radius: 10px;
+            background-color: #222; /* Black background taaki dikhe agar camera off hai */
+        }
+
+        .status { margin-top: 20px; font-size: 18px; font-weight: bold; color: yellow; }
+        button { padding: 10px 20px; font-size: 16px; margin-top: 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h3>📷 Mobile Exam Cam</h3>
+    
+    <video id="videoElement" autoplay playsinline muted></video>
+    
+    <div class="status" id="status">Connecting...</div>
+    <button onclick="startCamera()">Restart Camera</button>
+
+    <canvas id="canvas" style="display:none;"></canvas>
+
+    <script>
+        const video = document.getElementById('videoElement');
+        const canvas = document.getElementById('canvas');
+        const statusText = document.getElementById('status');
+        const context = canvas.getContext('2d');
+
+        function startCamera() {
+            statusText.innerText = "Requesting Camera Access...";
+            
+            // Camera constraints
+            const constraints = { 
+                video: { 
+                    facingMode: 'environment', // 'user' for selfie, 'environment' for back camera
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                } 
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then((stream) => {
+                    video.srcObject = stream;
+                    statusText.innerText = "Camera Active! Sending Data...";
+                    statusText.style.color = "#0f0";
+                    startSendingFrames();
+                })
+                .catch((err) => {
+                    console.error("Camera Error: ", err);
+                    alert("Camera Error: " + err.name + "\nMake sure site is allowed in Chrome Settings.");
+                    statusText.innerText = "Camera Blocked / Error";
+                    statusText.style.color = "red";
+                });
+        }
+
+        function startSendingFrames() {
+            setInterval(() => {
+                if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                    // Draw video to canvas
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+                    
+                    // Convert to Base64
+                    const dataURL = canvas.toDataURL('image/jpeg', 0.5);
+
+                    // Send to Laptop
+                    fetch('/upload_frame', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ image: dataURL })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        console.log("Sent.");
+                    })
+                    .catch(err => {
+                        console.log("Network Error");
+                        statusText.innerText = "Laptop Disconnected?";
+                        statusText.style.color = "orange";
+                    });
+                }
+            }, 500); // Har 0.5 second me bhejo (Speed badhane ke liye)
+        }
+
+        // Page load hote hi camera start karo
+        window.onload = startCamera;
+    </script>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Laptop Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 50px; }
+        #blocked-screen { display: none; color: red; border: 2px solid red; padding: 20px; }
+        #qr-screen { border: 2px dashed #333; padding: 20px; display: inline-block; }
+    </style>
+</head>
+<body>
+
+    <div id="qr-screen">
+        <h1>Scan to Start Exam on Mobile 📱</h1>
+        <p>Use your phone to scan this QR code.</p>
+        
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=http://192.168.1.5:5000/mobile-exam?room=student1" alt="QR Code">
+        
+        <p>Waiting for connection...</p>
+    </div>
+
+    <div id="blocked-screen">
+        <h1>🚫 Screen Locked</h1>
+        <h2>Exam is running on your Mobile Device.</h2>
+        <p>Please do not close this tab.</p>
+    </div>
+
+    <script>
+        // Server se connect karo
+        var socket = io();
+        var room = "student1"; // Har student ka unique ID
+
+        // Room join karo
+        socket.emit('join_exam', {room: room});
+
+        // Jaise hi Mobile aaye, ye function chalega
+        socket.on('block_screen', function(data) {
+            document.getElementById('qr-screen').style.display = 'none';
+            document.getElementById('blocked-screen').style.display = 'block';
+            alert("Mobile Connected! Locking Laptop Screen.");
+        });
+    </script>
+</body>
+</html>

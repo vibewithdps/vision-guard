@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Login</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .login-card {
+            background: #2d2d2d;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            width: 350px;
+            text-align: center;
+        }
+        h2 { color: #2ecc71; margin-bottom: 30px; }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            background: #404040;
+            border: 1px solid #555;
+            color: white;
+            border-radius: 5px;
+            box-sizing: border-box;
+            font-size: 16px;
+        }
+        input:focus, select:focus { outline: none; border-color: #2ecc71; }
+        
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 20px;
+            background: #2ecc71;
+            color: black;
+            border: none;
+            border-radius: 5px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        button:hover { background: #27ae60; }
+        
+        .note { font-size: 13px; color: #aaa; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="login-card">
+        <h2>🛡️ Exam Login</h2>
+        <form action="/start_exam" method="POST">
+            <input type="text" name="name" placeholder="Enter Name (e.g. DPS)" required>
+            <input type="text" name="roll" placeholder="Roll Number" required>
+            
+            <label style="display:block; text-align:left; margin-top:15px; font-weight:bold;">Select Camera Source:</label>
+            <select name="camera_mode" id="camera_mode">
+                <option value="laptop">💻 Laptop Webcam</option>
+                <option value="mobile">📱 Mobile Camera (QR Scan)</option>
+            </select>
+
+            <button type="submit">Start Exam 🚀</button>
+            
+            <p class="note" id="mobile-note" style="display:none;">
+                *Next screen par QR Code aayega, use scan karna.
+            </p>
+        </form>
+    </div>
+
+    <script>
+        // Bas user ko batane ke liye ki QR aane wala hai
+        const select = document.getElementById('camera_mode');
+        const note = document.getElementById('mobile-note');
+        
+        select.addEventListener('change', function() {
+            if(this.value === 'mobile') {
+                note.style.display = 'block';
+            } else {
+                note.style.display = 'none';
+            }
+        });
+    </script>
+
+</body>
+</html>

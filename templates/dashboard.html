@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Teacher Dashboard</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #222; color: white; padding-top: 50px; }
+        .card { background: #333; display: inline-block; padding: 40px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        h1 { margin-bottom: 10px; }
+        .url-box { background: #111; padding: 10px; color: #0f0; font-family: monospace; border-radius: 5px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>📲 Scan to Start Exam</h1>
+        <p>Open your mobile camera and scan this code.</p>
+        
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=250x250&data={{ mobile_url }}" alt="QR Code">
+
+        <p>Or type this URL manually:</p>
+        <div class="url-box">{{ mobile_url }}</div>
+        
+        <br><br>
+        <p style="color: yellow;">⚠️ Note: Laptop and Mobile must be on the SAME WiFi.</p>
+    </div>
+</body>
+</html>

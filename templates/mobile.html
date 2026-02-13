@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mobile Exam</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { background-color: #f8f9fa; text-align: center; font-family: sans-serif; }
+        video { width: 90%; border-radius: 10px; border: 3px solid #007bff; margin-top: 20px; }
+        .status { color: green; font-weight: bold; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <h2>📝 Exam Started</h2>
+    <p class="status">Connected to Laptop System</p>
+    
+    <video id="videoElement" autoplay playsinline muted></video>
+
+    <script>
+        var socket = io();
+        
+        // URL se room ID nikalo (agar URL me hai to)
+        const urlParams = new URLSearchParams(window.location.search);
+        const room = urlParams.get('room') || "student1";
+
+        // Room Join karo
+        socket.emit('join_exam', {room: room});
+
+        // Server ko batao: MAIN READY HU
+        socket.emit('mobile_connected', {room: room});
+
+        // Camera Start karne ka code
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: "user" }, // Front camera
+                    audio: false 
+                });
+                document.getElementById('videoElement').srcObject = stream;
+            } catch (err) {
+                alert("Camera Error: " + err);
+            }
+        }
+        startCamera();
+    </script>
+</body>
+</html>
