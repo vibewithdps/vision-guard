@@ -39,17 +39,6 @@
     </div>
 
     <div class="main">
-        
-        {% if mode == 'mobile' %}
-        <div id="qr-box" class="qr-overlay">
-            <h3>📲 Scan with Mobile</h3>
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data={{ mobile_url }}" alt="QR Code">
-            <p>Ensure both devices are on same WiFi.</p>
-            <p style="font-size: 12px; color: #aaa;">Waiting for connection...</p>
-            <button onclick="document.getElementById('qr-box').style.display='none'" style="padding: 5px 10px; cursor:pointer;">Hide QR</button>
-        </div>
-        {% endif %}
-
         <img src="{{ url_for('video_feed') }}" class="feed" alt="Live Feed">
     </div>
 
