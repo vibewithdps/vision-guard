@@ -285,27 +285,32 @@ def login_page():
 
 @app.route('/start_exam', methods=['POST'])
 def start_exam():
-    global student_details
+    # 1. Login form se naam aur roll number nikalo
     name = request.form.get('name')
     roll = request.form.get('roll')
-    mode = request.form.get('camera_mode') 
 
+    # 2. Mode ko zabardasti 'laptop' set kar do
+    # (Iska matlab: "Jahan ye site khuli hai, wahin ka camera use karo")
+    mode = 'laptop' 
+
+    # 3. Global variable update karo
+    global student_details
     student_details = {"name": name, "roll": roll, "camera_type": mode}
-    
-    # Camera Logic
-    system.start_camera(mode)
-    
-    # 🟢 NEW: Mobile URL generate karo taaki QR code ban sake
-    ip = get_ip_address()
-    mobile_url = f"http://{ip}:5001/mobile_scanner"
 
-    # 🟢 NEW: 'mobile_url' aur 'mode' ko template me bhejo
-    return render_template('index.html', name=name, mobile_url=mobile_url, mode=mode)
+    # 4. Camera system start karo
+    # (Note: Agar 'system' variable define nahi hai to ye line hata dena)
+    if 'system' in globals(): 
+        system.start_camera(mode)
+
+    # 5. AB SABSE ZAROORI:
+    # Pehle ye 'index.html' (QR page) return kar raha tha.
+    # Ab hum seedha 'exam.html' return karenge.
+    return render_template('exam.html', student=student_details)
+
+# --- Jo neeche 'mobile_scanner' wala route hai, use delete kar do ---
+# Uski ab zaroorat nahi hai.
 
 # Ye naya route hai jo Mobile Phone khulega
-@app.route('/mobile_scanner')
-def mobile_scanner():
-    return render_template('exam.html')
 
 # Ye route Mobile se aayi hui photos receive karega
 @app.route('/upload_frame', methods=['POST'])
