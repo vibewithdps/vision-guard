@@ -6,26 +6,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
         body { font-family: sans-serif; background: #f4f4f4; text-align: center; }
-        .header { background: #333; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; padding-left: 20px; padding-right: 20px;}
-        .camera-box { border: 5px solid #28a745; display: inline-block; margin-top: 20px; position: relative; }
+        .header { background: #333; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; padding: 0 20px;}
+        .camera-box { border: 5px solid #28a745; display: inline-block; margin-top: 20px; position: relative; background: black; }
         video { width: 480px; height: 360px; transform: scaleX(-1); }
-        #status-msg { background: #28a745; color: white; padding: 10px; font-weight: bold; }
+        #status-msg { background: #28a745; color: white; padding: 10px; font-weight: bold; font-size: 18px; }
         .submit-btn { margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #dc3545; color: white; border: none; cursor: pointer; border-radius: 5px; }
         .submit-btn:hover { background: #a71d2a; }
+        .network-dot { height: 10px; width: 10px; background-color: #bbb; border-radius: 50%; display: inline-block; margin-left: 10px; }
+        .active-net { background-color: #00ff00; box-shadow: 0 0 5px #00ff00; }
     </style>
 </head>
 <body>
 
 <div class="header">
-    <h3>🎓 Candidate: {{ name }}</h3>
-    <p>ID: {{ email }}</p>
+    <h3>🎓 {{ name }}</h3>
+    <div>
+        <span>ID: {{ email }}</span>
+        <span id="net-indicator" class="network-dot"></span>
+    </div>
 </div>
 
-<h2>🛡️ AI Proctoring Active</h2>
-<p>Keep your face in the frame. Do not switch tabs. No Phones.</p>
+<h3>🛡️ AI Proctoring Active</h3>
+<p>Keep your face in frame. Don't look away.</p>
 
 <div class="camera-box" id="monitorBox">
-    <div id="status-msg">System Active ✅</div>
+    <div id="status-msg">Connecting to AI...</div>
     <video id="videoElement" autoplay playsinline></video>
 </div>
 
@@ -40,19 +45,31 @@
     const ctx = canvas.getContext('2d');
     const statusMsg = document.getElementById('status-msg');
     const monitorBox = document.getElementById('monitorBox');
+    const netDot = document.getElementById('net-indicator');
 
     async function startCam() {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        video.srcObject = stream;
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video.srcObject = stream;
+        } catch(e) {
+            alert("Camera Access Required!");
+        }
     }
 
-    // Monitoring Loop (Sends frame every 1 sec)
+    // Checking Loop (Har 1.5 Second)
     setInterval(() => {
         if(video.readyState === video.HAVE_ENOUGH_DATA) {
-            canvas.width = video.videoWidth * 0.5; // Reduce size for speed
-            canvas.height = video.videoHeight * 0.5;
+            // Blink Indicator
+            netDot.classList.add("active-net");
+            setTimeout(() => netDot.classList.remove("active-net"), 200);
+
+            // Create very small image for speed
+            canvas.width = 320;
+            canvas.height = 240;
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const imgData = canvas.toDataURL("image/jpeg", 0.6);
+            
+            // Low quality JPG (40%)
+            const imgData = canvas.toDataURL("image/jpeg", 0.4);
 
             fetch('/process_frame', {
                 method: 'POST',
@@ -61,14 +78,17 @@
             })
             .then(res => res.json())
             .then(data => {
-                if(data.status) {
+                if(data.status && !data.status.includes("Skipped")) {
                     statusMsg.innerText = data.status;
                     statusMsg.style.backgroundColor = data.color;
                     monitorBox.style.borderColor = data.color;
                 }
+            })
+            .catch(err => {
+                console.log("Network Lag");
             });
         }
-    }, 1000);
+    }, 1500); // 1.5 seconds delay to prevent server crash
 
     // Tab Switch
     document.addEventListener("visibilitychange", function() {
@@ -79,7 +99,8 @@
     });
 
     function submitExam() {
-        if(confirm("Are you sure you want to finish the exam?")) {
+        if(confirm("Finish Exam?")) {
+            statusMsg.innerText = "Submitting...";
             fetch('/submit_exam', { method: 'POST' })
             .then(res => res.json())
             .then(data => {
