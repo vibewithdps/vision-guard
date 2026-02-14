@@ -4,4 +4,3 @@ numpy
 opencv-python-headless
 ultralytics
 mediapipe
-protobuf==3.20.3
