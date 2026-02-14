@@ -1,95 +1,96 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <title>VisionGuard Exam</title>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Exam Monitor</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background: #f4f4f4; }
-        .monitor-box {
-            position: relative;
-            display: inline-block;
-            border: 5px solid #333;
-            margin-top: 20px;
-        }
-        video { width: 640px; height: 480px; background: black; }
-        #statusOverlay {
-            position: absolute;
-            top: 10px; left: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px;
-            font-size: 18px;
-            border-radius: 5px;
-        }
+        body { font-family: sans-serif; background: #f4f4f4; text-align: center; }
+        .header { background: #333; color: white; padding: 15px; display: flex; justify-content: space-between; align-items: center; padding-left: 20px; padding-right: 20px;}
+        .camera-box { border: 5px solid #28a745; display: inline-block; margin-top: 20px; position: relative; }
+        video { width: 480px; height: 360px; transform: scaleX(-1); }
+        #status-msg { background: #28a745; color: white; padding: 10px; font-weight: bold; }
+        .submit-btn { margin-top: 20px; padding: 15px 30px; font-size: 18px; background: #dc3545; color: white; border: none; cursor: pointer; border-radius: 5px; }
+        .submit-btn:hover { background: #a71d2a; }
     </style>
 </head>
 <body>
 
-    <h1>Exam in Progress: {{ student_name }}</h1>
-    <p>Please allow Camera Access. Do not switch tabs.</p>
+<div class="header">
+    <h3>🎓 Candidate: {{ name }}</h3>
+    <p>ID: {{ email }}</p>
+</div>
 
-    <div class="monitor-box">
-        <video id="videoElement" autoplay playsinline></video>
-        <div id="statusOverlay">System Initializing...</div>
-    </div>
-    
-    <canvas id="canvas" style="display:none;"></canvas>
+<h2>🛡️ AI Proctoring Active</h2>
+<p>Keep your face in the frame. Do not switch tabs. No Phones.</p>
 
-    <script>
-        const video = document.getElementById('videoElement');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const statusText = document.getElementById('statusOverlay');
+<div class="camera-box" id="monitorBox">
+    <div id="status-msg">System Active ✅</div>
+    <video id="videoElement" autoplay playsinline></video>
+</div>
 
-        // 1. Start Camera
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                video.srcObject = stream;
-            } catch (err) {
-                alert("Camera Error: " + err);
-            }
+<br>
+<button class="submit-btn" onclick="submitExam()">End Exam & Submit</button>
+
+<canvas id="canvas" style="display:none;"></canvas>
+
+<script>
+    const video = document.getElementById('videoElement');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const statusMsg = document.getElementById('status-msg');
+    const monitorBox = document.getElementById('monitorBox');
+
+    async function startCam() {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+    }
+
+    // Monitoring Loop (Sends frame every 1 sec)
+    setInterval(() => {
+        if(video.readyState === video.HAVE_ENOUGH_DATA) {
+            canvas.width = video.videoWidth * 0.5; // Reduce size for speed
+            canvas.height = video.videoHeight * 0.5;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const imgData = canvas.toDataURL("image/jpeg", 0.6);
+
+            fetch('/process_frame', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ image: imgData })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status) {
+                    statusMsg.innerText = data.status;
+                    statusMsg.style.backgroundColor = data.color;
+                    monitorBox.style.borderColor = data.color;
+                }
+            });
         }
+    }, 1000);
 
-        // 2. Send Frame to Server Loop
-        setInterval(() => {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                // Draw video frame to canvas
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Tab Switch
+    document.addEventListener("visibilitychange", function() {
+        if(document.hidden) {
+            fetch('/record_tab_switch', { method: 'POST' });
+            alert("⚠️ WARNING: Tab Switch Recorded!");
+        }
+    });
 
-                // Convert to Base64
-                const imageData = canvas.toDataURL("image/jpeg", 0.5); // Quality 0.5 for speed
+    function submitExam() {
+        if(confirm("Are you sure you want to finish the exam?")) {
+            fetch('/submit_exam', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                window.location.href = "/";
+            });
+        }
+    }
 
-                // Send to Python
-                fetch('/process_frame', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: imageData })
-                })
-                .then(res => res.json())
-                .then(data => {
-                    // Update Status on Screen
-                    if (data.status) {
-                        statusText.innerText = data.status;
-                        statusText.style.color = data.color;
-                        document.querySelector('.monitor-box').style.borderColor = data.color;
-                    }
-                })
-                .catch(err => console.log("Server Error:", err));
-            }
-        }, 1000); // Har 1 second mein check karega (Server load kam karne ke liye)
+    startCam();
+</script>
 
-        startCamera();
-        
-        // Tab Switch Protection
-        document.addEventListener("visibilitychange", function() {
-            if (document.hidden) {
-                alert("WARNING: Tab Switching Detected! This incident is recorded.");
-            }
-        });
-    </script>
 </body>
 </html>
