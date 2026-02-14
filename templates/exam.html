@@ -3,99 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mobile Scanner</title>
+    <title>VisionGuard Exam</title>
     <style>
-        body { background: black; color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif; }
-        
-        /* Video dikhna chahiye */
-        video {
-            width: 90%;
-            max-width: 400px;
-            border: 2px solid #0f0;
-            border-radius: 10px;
-            background-color: #222; /* Black background taaki dikhe agar camera off hai */
+        body { 
+            font-family: Arial, sans-serif; 
+            background-color: #f4f4f4; 
+            text-align: center; 
+            user-select: none; /* Text select nahi kar payega */
         }
-
-        .status { margin-top: 20px; font-size: 18px; font-weight: bold; color: yellow; }
-        button { padding: 10px 20px; font-size: 16px; margin-top: 20px; cursor: pointer; }
+        .video-container {
+            margin: 20px auto;
+            border: 5px solid #333;
+            width: 640px;
+            height: 480px;
+            background: #000;
+        }
+        img { width: 100%; height: 100%; }
+        .warning-box {
+            color: red;
+            font-weight: bold;
+            margin-top: 10px;
+            font-size: 18px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            background: #d9534f;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
 
-    <h3>📷 Mobile Exam Cam</h3>
+    <h1>Exam in Progress: {{ student.name }}</h1>
+    <p>Roll No: {{ student.roll }}</p>
     
-    <video id="videoElement" autoplay playsinline muted></video>
-    
-    <div class="status" id="status">Connecting...</div>
-    <button onclick="startCamera()">Restart Camera</button>
+    <div class="warning-box" id="warningMsg">Monitor Active. Do not switch tabs.</div>
 
-    <canvas id="canvas" style="display:none;"></canvas>
+    <div class="video-container">
+        <img src="{{ url_for('video_feed') }}" alt="Video Feed">
+    </div>
+
+    <button onclick="endExam()">Submit Exam</button>
 
     <script>
-        const video = document.getElementById('videoElement');
-        const canvas = document.getElementById('canvas');
-        const statusText = document.getElementById('status');
-        const context = canvas.getContext('2d');
+        // --- 1. TAB SWITCH DETECTION ---
+        document.addEventListener("visibilitychange", function() {
+            if (document.hidden) {
+                // User ne tab change kiya!
+                recordIncident("Tab Switch Detected");
+                alert("WARNING: Tab switching is recorded! This will be reported.");
+            }
+        });
 
-        function startCamera() {
-            statusText.innerText = "Requesting Camera Access...";
-            
-            // Camera constraints
-            const constraints = { 
-                video: { 
-                    facingMode: 'user',  // 'user' for selfie, 'environment' for back camera
-                    width: { ideal: 640 },
-                    height: { ideal: 480 }
-                } 
-            };
+        // --- 2. WINDOW BLUR (Agar browser minimize kiya) ---
+        window.onblur = function() {
+            recordIncident("Browser Minimized / Lost Focus");
+        };
 
-            navigator.mediaDevices.getUserMedia(constraints)
-                .then((stream) => {
-                    video.srcObject = stream;
-                    statusText.innerText = "Camera Active! Sending Data...";
-                    statusText.style.color = "#0f0";
-                    startSendingFrames();
-                })
-                .catch((err) => {
-                    console.error("Camera Error: ", err);
-                    alert("Camera Error: " + err.name + "\nMake sure site is allowed in Chrome Settings.");
-                    statusText.innerText = "Camera Blocked / Error";
-                    statusText.style.color = "red";
+        // --- 3. DISABLE RIGHT CLICK ---
+        document.addEventListener('contextmenu', event => event.preventDefault());
+
+        // --- 4. DISABLE KEYBOARD SHORTCUTS (Copy/Paste/Alt+Tab) ---
+        document.onkeydown = function(e) {
+            // Disable F12, Ctrl+Shift+I (DevTools), Ctrl+C, Ctrl+V, Alt+Tab
+            if (e.keyCode == 123 || 
+                (e.ctrlKey && e.shiftKey && e.keyCode == 73) || 
+                (e.ctrlKey && e.keyCode == 67) || 
+                (e.ctrlKey && e.keyCode == 86) || 
+                (e.ctrlKey && e.keyCode == 85) ) {
+                
+                recordIncident("Illegal Key Press Attempt");
+                return false;
+            }
+        };
+
+        // --- HELPER FUNCTION: SEND DATA TO PYTHON ---
+        function recordIncident(type) {
+            fetch('/record_incident', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type: type })
+            }).then(response => {
+                document.getElementById('warningMsg').innerText = "⚠️ VIOLATION RECORDED: " + type;
+            });
+        }
+
+        // --- END EXAM ---
+        function endExam() {
+            if(confirm("Are you sure you want to submit?")) {
+                fetch('/end_exam', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    alert(data.message);
+                    window.location.href = "/";
                 });
+            }
         }
-
-        function startSendingFrames() {
-            setInterval(() => {
-                if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                    // Draw video to canvas
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
-                    // Convert to Base64
-                    const dataURL = canvas.toDataURL('image/jpeg', 0.5);
-
-                    // Send to Laptop
-                    fetch('/upload_frame', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ image: dataURL })
-                    })
-                    .then(res => res.json())
-                    .then(data => {
-                        console.log("Sent.");
-                    })
-                    .catch(err => {
-                        console.log("Network Error");
-                        statusText.innerText = "Laptop Disconnected?";
-                        statusText.style.color = "orange";
-                    });
-                }
-            }, 500); // Har 0.5 second me bhejo (Speed badhane ke liye)
+        
+        // --- FULL SCREEN REQUEST (Optional) ---
+        document.body.click(); // User interaction needed
+        if (document.documentElement.requestFullscreen) {
+            // Browser policy ki wajah se user ko click karna padega tabhi full screen hoga
         }
-
-        // Page load hote hi camera start karo
-        window.onload = startCamera;
     </script>
 </body>
 </html>
