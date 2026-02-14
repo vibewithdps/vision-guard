@@ -1,4 +1,7 @@
 import os
+# 🚀 SPEED FIX: Sabse pehle ye line zaroori hai taaki server atke nahi
+os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib'
+
 import cv2
 import numpy as np
 import mediapipe as mp
@@ -17,11 +20,11 @@ app.secret_key = 'final_exam_system_key'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-# ⚠️ Apna 16-Digit App Password Yahan Dalein
+# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN
 APP_PASSWORD = "akzw jzia itbv cmli" 
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
-# ✅ WAAPAS PURANA DATABASE
+# ✅ DATABASE (Wahi purana wala)
 DB_NAME = "exam_system.db"
 UPLOAD_FOLDER = 'static/uploads'
 
@@ -44,11 +47,13 @@ def init_db():
 init_db()
 
 # --- AI MODELS ---
-print("🚀 Loading AI Models...")
+print("🚀 Loading AI Models (optimized)...")
 try:
     yolo_model = YOLO("yolov8n.pt")
+    print("✅ YOLO Loaded")
 except:
     yolo_model = None
+    print("❌ YOLO Failed")
 
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
@@ -76,10 +81,10 @@ def log_violation_db(email, alert):
         c = conn.cursor()
         timestamp = datetime.now().strftime("%H:%M:%S")
         
-        # Spam Check
         c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
         last = c.fetchone()
         
+        # 1 Second Spam Filter
         if not last or last[0] != timestamp:
             c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                       (email, alert, timestamp))
@@ -161,6 +166,9 @@ def admin_panel():
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
     try:
+        # Debugging Print
+        print("📸 Frame Received") 
+        
         data = request.json['image']
         header, encoded = data.split(",", 1)
         binary = base64.b64decode(encoded)
@@ -170,6 +178,7 @@ def process_frame():
 
         status = "Focused ✅"; color = "#28a745"; alert = ""
 
+        # Face Logic
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
         if results.multi_face_landmarks:
@@ -178,6 +187,7 @@ def process_frame():
             elif nose_x > 0.8: alert = "Looking Left"
         else: alert = "Face Missing"
 
+        # YOLO Logic
         if yolo_model and not alert:
             yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
             for r in yolo_res:
@@ -188,7 +198,9 @@ def process_frame():
             log_violation_db(session['user_email'], alert)
         
         return jsonify({"status": status, "color": color})
-    except: return jsonify({"status": "Active...", "color": "orange"})
+    except Exception as e: 
+        print(f"Error: {e}")
+        return jsonify({"status": "Active...", "color": "orange"})
 
 @app.route('/record_tab_switch', methods=['POST'])
 def record_tab_switch():
