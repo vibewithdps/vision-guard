@@ -2,5 +2,6 @@ flask
 gunicorn
 numpy
 opencv-python-headless
-ultralytics
+protobuf==3.20.3
 mediapipe
+ultralytics
