@@ -4,24 +4,38 @@
     <title>Exam Mode</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: sans-serif; text-align: center; background: #f4f4f4; }
-        .cam-container { border: 4px solid #333; display: inline-block; margin-top: 20px; background: black; }
+        body { font-family: sans-serif; text-align: center; background: #f4f4f4; padding-top: 50px; }
+        .cam-container { border: 4px solid #333; display: inline-block; background: black; border-radius: 10px; overflow: hidden; }
         video { width: 480px; height: 360px; transform: scaleX(-1); }
-        #status { background: #333; color: white; padding: 10px; font-weight: bold; }
-        button { padding: 15px 30px; background: red; color: white; border: none; cursor: pointer; font-size: 18px; margin-top: 20px; }
+        #status { background: #333; color: white; padding: 10px; font-weight: bold; font-size: 18px;}
+        
+        .btn { padding: 15px 30px; border: none; cursor: pointer; font-size: 18px; margin-top: 20px; border-radius: 5px; color: white; }
+        .btn-end { background: #dc3545; }
+        .btn-logout { background: #007bff; display: none; } /* Hidden by default */
+        
+        h2 { color: #333; }
     </style>
 </head>
 <body>
 
-    <h2>🎓 Exam: {{ name }}</h2>
-    <p>AI Proctoring Active. Do not leave this screen.</p>
+    <div id="exam-area">
+        <h2>🎓 Exam: {{ name }}</h2>
+        <p>AI Proctoring Active. Do not leave this screen.</p>
 
-    <div class="cam-container" id="box">
-        <div id="status">Connecting...</div>
-        <video id="vid" autoplay playsinline></video>
+        <div class="cam-container" id="box">
+            <div id="status">Connecting to AI...</div>
+            <video id="vid" autoplay playsinline></video>
+        </div>
+        <br>
+        <button class="btn btn-end" onclick="endExam()" id="submitBtn">End Exam & Submit</button>
     </div>
-    <br>
-    <button onclick="endExam()">End Exam & Submit</button>
+
+    <div id="success-area" style="display:none;">
+        <h1 style="color: green;">✅ Exam Submitted!</h1>
+        <p>Your report has been generated.</p>
+        <a href="/logout"><button class="btn btn-logout" style="display:inline-block;">Logout</button></a>
+    </div>
+
     <canvas id="cvs" style="display:none;"></canvas>
 
 <script>
@@ -30,22 +44,23 @@
     const box = document.getElementById('box');
     const canvas = document.getElementById('cvs');
     let streamRef = null;
+    let monitoring = true;
 
     async function start() {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({video: true});
             video.srcObject = stream;
             streamRef = stream;
-        } catch(e) { alert("Camera Needed!"); }
+        } catch(e) { alert("Camera Permission Required!"); }
     }
 
+    // Monitoring Loop
     setInterval(() => {
-        if(video.readyState === 4 && streamRef) {
-            // Resize to small image for speed
+        if(monitoring && video.readyState === 4) {
             canvas.width = 320; 
             canvas.height = 240;
             canvas.getContext('2d').drawImage(video, 0, 0, 320, 240);
-            const img = canvas.toDataURL('image/jpeg', 0.4);
+            const img = canvas.toDataURL('image/jpeg', 0.5);
 
             fetch('/process_frame', {
                 method: 'POST',
@@ -54,24 +69,23 @@
             })
             .then(r => r.json())
             .then(d => {
-                if(!d.status.includes("Skipped")) {
-                    status.innerText = d.status;
-                    status.style.background = d.color;
-                    box.style.borderColor = d.color;
-                }
+                status.innerText = d.status;
+                status.style.background = d.color;
+                box.style.borderColor = d.color;
             });
         }
-    }, 2000); // 2 Seconds Delay
+    }, 1000); // 1 sec check
 
     document.addEventListener("visibilitychange", () => {
-        if(document.hidden) fetch('/record_tab_switch', {method: 'POST'});
+        if(document.hidden && monitoring) fetch('/record_tab_switch', {method: 'POST'});
     });
 
     function endExam() {
-        if(confirm("Submit Exam?")) {
-            status.innerText = "Closing Camera & Sending Mail...";
-            
-            // 🛑 STOP CAMERA IMMEDIATELY
+        if(confirm("Are you sure you want to finish?")) {
+            status.innerText = "Closing & Sending Report...";
+            monitoring = false;
+
+            // 🛑 Stop Camera
             if(streamRef) {
                 streamRef.getTracks().forEach(track => track.stop());
                 video.srcObject = null;
@@ -81,7 +95,9 @@
             .then(r => r.json())
             .then(d => {
                 alert(d.message);
-                window.location.href = "/";
+                // Hide Exam, Show Logout
+                document.getElementById('exam-area').style.display = 'none';
+                document.getElementById('success-area').style.display = 'block';
             });
         }
     }
