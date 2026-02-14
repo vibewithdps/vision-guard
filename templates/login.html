@@ -4,90 +4,91 @@
     <title>VisionGuard Access</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #0f0c29; background: linear-gradient(to right, #24243e, #302b63, #0f0c29); height: 100vh; display: flex; align-items: center; justify-content: center; color: white; }
-        .container { background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); padding: 40px; border-radius: 15px; width: 400px; box-shadow: 0 15px 25px rgba(0,0,0,0.6); text-align: center; }
-        h2 { margin-bottom: 20px; color: #fff; text-transform: uppercase; letter-spacing: 2px; }
-        input, select { width: 100%; padding: 10px 0; font-size: 16px; color: #fff; margin-bottom: 30px; border: none; border-bottom: 1px solid #fff; outline: none; background: transparent; }
-        button { background: #03e9f4; color: #fff; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 100%; transition: 0.5s; text-transform: uppercase; letter-spacing: 2px; }
-        button:hover { background: #fff; color: #000; box-shadow: 0 0 5px #03e9f4, 0 0 25px #03e9f4; }
-        .toggle-txt { margin-top: 15px; font-size: 14px; cursor: pointer; color: #03e9f4; }
-        #camera-preview { width: 100%; height: 240px; background: black; margin-bottom: 15px; display: none; border: 2px solid #03e9f4; }
+        body { margin: 0; padding: 0; font-family: sans-serif; background: #24243e; height: 100vh; display: flex; align-items: center; justify-content: center; color: white; }
+        .container { background: rgba(255,255,255,0.1); padding: 40px; border-radius: 15px; width: 350px; text-align: center; }
+        input, select { width: 100%; padding: 10px; margin-bottom: 15px; border-radius: 5px; border: none; }
+        button { background: #03e9f4; width: 100%; padding: 10px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; }
         .hidden { display: none; }
+        .toggle-txt { color: #03e9f4; cursor: pointer; margin-top: 10px; }
+        video { width: 100%; border: 2px solid #03e9f4; margin-bottom: 10px; display: none; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2 id="form-title">Student Login</h2>
-    
+    <h2 id="form-title">Login</h2>
+
     <div id="login-form">
-        <input type="email" id="l_email" placeholder="Email" required>
-        <input type="password" id="l_pass" placeholder="Password" required>
+        <input type="email" id="l_email" placeholder="Email">
+        <input type="password" id="l_pass" placeholder="Password">
         <button onclick="doLogin()">Login</button>
-        <p class="toggle-txt" onclick="toggleForm()">New here? Register</p>
+        <p class="toggle-txt" onclick="toggleForm()">Create Account</p>
     </div>
 
     <div id="register-form" class="hidden">
         <input type="text" id="r_name" placeholder="Full Name">
         <input type="email" id="r_email" placeholder="Email">
         <input type="text" id="r_mobile" placeholder="Mobile">
-        <select id="r_gender" style="color: grey;">
-            <option value="" disabled selected>Select Gender</option>
+        
+        <select id="r_role">
+            <option value="Student">Student</option>
+            <option value="Admin">Admin</option>
+        </select>
+
+        <select id="r_gender">
             <option value="Male">Male</option>
             <option value="Female">Female</option>
         </select>
+        
         <input type="password" id="r_pass" placeholder="Password">
-        <input type="password" id="r_conf_pass" placeholder="Confirm Password">
         
-        <p>Capture Live Photo for ID:</p>
-        <video id="camera-preview" autoplay playsinline></video>
+        <video id="cam-preview" autoplay playsinline></video>
+        <button type="button" onclick="startCamera()" style="background:#ff0055; margin-bottom:10px;">Capture Photo</button>
         <canvas id="canvas" style="display:none;"></canvas>
-        <button type="button" onclick="startCamera()" style="margin-bottom: 10px; background: #ff0055;">Open Camera</button>
-        
+
         <button onclick="doRegister()">Register</button>
-        <p class="toggle-txt" onclick="toggleForm()">Already registered? Login</p>
+        <p class="toggle-txt" onclick="toggleForm()">Back to Login</p>
     </div>
 </div>
 
 <script>
     let isLogin = true;
-    let livePhotoData = null;
-    const video = document.getElementById('camera-preview');
+    let photoData = null;
+    const video = document.getElementById('cam-preview');
     const canvas = document.getElementById('canvas');
 
     function toggleForm() {
         isLogin = !isLogin;
         document.getElementById('login-form').classList.toggle('hidden');
         document.getElementById('register-form').classList.toggle('hidden');
-        document.getElementById('form-title').innerText = isLogin ? "Student Login" : "Student Registration";
+        document.getElementById('form-title').innerText = isLogin ? "Login" : "Register";
     }
 
     async function startCamera() {
-        video.style.display = "block";
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.style.display = 'block';
+        const stream = await navigator.mediaDevices.getUserMedia({video: true});
         video.srcObject = stream;
     }
 
-    function capturePhoto() {
+    function capture() {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
         canvas.getContext('2d').drawImage(video, 0, 0);
-        livePhotoData = canvas.toDataURL('image/jpeg');
+        photoData = canvas.toDataURL('image/jpeg');
     }
 
     async function doRegister() {
-        if(!livePhotoData) capturePhoto(); // Auto capture on click
-        
+        if(!photoData) capture();
         const data = {
             full_name: document.getElementById('r_name').value,
             email: document.getElementById('r_email').value,
             mobile: document.getElementById('r_mobile').value,
+            role: document.getElementById('r_role').value,
             gender: document.getElementById('r_gender').value,
             password: document.getElementById('r_pass').value,
-            confirm_password: document.getElementById('r_conf_pass').value,
-            live_photo: livePhotoData
+            live_photo: photoData
         };
-
+        
         const res = await fetch('/register', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -109,11 +110,8 @@
             body: JSON.stringify(data)
         });
         const result = await res.json();
-        if(result.status === 'success') {
-            window.location.href = result.redirect;
-        } else {
-            alert(result.message);
-        }
+        if(result.status === 'success') window.location.href = result.redirect;
+        else alert(result.message);
     }
 </script>
 </body>

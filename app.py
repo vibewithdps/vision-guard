@@ -12,28 +12,30 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 import sqlite3
 import hashlib
 import time
+import gc # Garbage Collector for RAM
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_key_visionguard'
+app.secret_key = 'super_secret_key_visionguard_v2'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-APP_PASSWORD = "tlqv tasd pjmo xviz"  # ⚠️ Password check kar lena
+APP_PASSWORD = "tlqv tasd pjmo xviz"  # ⚠️ APNA PASSWORD YAHAN DALEIN
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
-# RAM Management: Last processing time check
-last_processed_time = 0
+# RAM Saver: Process only 1 frame every 2 seconds
+last_processed_time = {}
 
 UPLOAD_FOLDER = 'static/uploads'
 if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
-# --- DATABASE SETUP ---
+# --- DATABASE SETUP (New V2 DB) ---
 def init_db():
-    conn = sqlite3.connect('exam_system.db')
+    conn = sqlite3.connect('visionguard_v2.db') # New DB Name
     c = conn.cursor()
+    # User Table me ROLE add kiya hai
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (id INTEGER PRIMARY KEY, full_name TEXT, email TEXT, mobile TEXT, 
-                  gender TEXT, password TEXT, photo_path TEXT)''')
+                  gender TEXT, role TEXT, password TEXT, photo_path TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS logs 
                  (id INTEGER PRIMARY KEY, user_email TEXT, alert_type TEXT, timestamp TEXT)''')
     conn.commit()
@@ -41,15 +43,12 @@ def init_db():
 
 init_db()
 
-# --- AI MODELS ---
-print("⏳ Loading AI Models... (Please Wait)")
+# --- AI MODELS (CPU OPTIMIZED) ---
+print("⏳ Loading AI Models...")
 try:
-    # YOLO ko CPU friendly mode mein load kar rahe hain
-    yolo_model = YOLO("yolov8n.pt") 
-    print("✅ YOLO Loaded")
+    yolo_model = YOLO("yolov8n.pt") # Nano model
 except:
     yolo_model = None
-    print("❌ YOLO Failed")
 
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
@@ -60,9 +59,20 @@ face_mesh = mp_face_mesh.FaceMesh(
 )
 
 # --- HELPER FUNCTIONS ---
+def save_base64_image(data_str, filename):
+    if not data_str: return None
+    try:
+        header, encoded = data_str.split(",", 1)
+        data = base64.b64decode(encoded)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+    except: return None
+
 def log_violation_db(email, alert):
     try:
-        conn = sqlite3.connect('exam_system.db')
+        conn = sqlite3.connect('visionguard_v2.db')
         c = conn.cursor()
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
@@ -79,28 +89,16 @@ def log_violation_db(email, alert):
             c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                       (email, alert, timestamp))
             conn.commit()
-            print(f"🛑 VIOLATION SAVED: {alert}")
+            print(f"🛑 LOG SAVED: {alert} - {email}")
         conn.close()
     except Exception as e:
         print(f"DB Error: {e}")
-
-def save_base64_image(data_str, filename):
-    if not data_str: return None
-    try:
-        header, encoded = data_str.split(",", 1)
-        data = base64.b64decode(encoded)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        with open(path, "wb") as f:
-            f.write(data)
-        return path
-    except: return None
 
 # --- ROUTES ---
 
 @app.route('/')
 def home():
-    # 🔥 FORCE LOGOUT: Jab bhi koi link khole, purana session clear karo
-    session.clear()
+    session.clear() # Force Logout on Home
     return render_template('login.html')
 
 @app.route('/register', methods=['POST'])
@@ -110,11 +108,12 @@ def register():
         photo_path = save_base64_image(data['live_photo'], f"{data['email']}_profile.jpg")
         hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
 
-        conn = sqlite3.connect('exam_system.db')
+        conn = sqlite3.connect('visionguard_v2.db')
         c = conn.cursor()
         try:
-            c.execute("INSERT INTO users (full_name, email, mobile, gender, password, photo_path) VALUES (?,?,?,?,?,?)",
-                      (data['full_name'], data['email'], data['mobile'], data['gender'], hashed_pwd, photo_path))
+            # Saving ROLE (Student/Admin)
+            c.execute("INSERT INTO users (full_name, email, mobile, gender, role, password, photo_path) VALUES (?,?,?,?,?,?,?)",
+                      (data['full_name'], data['email'], data['mobile'], data['gender'], data['role'], hashed_pwd, photo_path))
             conn.commit()
             return jsonify({"status": "success", "message": "Registered Successfully!"})
         except sqlite3.IntegrityError:
@@ -130,7 +129,7 @@ def login():
         data = request.json
         hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
 
-        conn = sqlite3.connect('exam_system.db')
+        conn = sqlite3.connect('visionguard_v2.db')
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE email=? AND password=?", (data['email'], hashed_pwd))
         user = c.fetchone()
@@ -139,7 +138,13 @@ def login():
         if user:
             session['user_email'] = user[2]
             session['user_name'] = user[1]
-            return jsonify({"status": "success", "redirect": "/exam"})
+            session['role'] = user[5] # Role Load kiya
+            
+            # Role based redirect
+            if user[5] == 'Admin':
+                return jsonify({"status": "success", "redirect": "/admin"})
+            else:
+                return jsonify({"status": "success", "redirect": "/exam"})
         else:
             return jsonify({"status": "error", "message": "Wrong Email or Password"})
     except Exception as e:
@@ -147,37 +152,39 @@ def login():
 
 @app.route('/exam')
 def exam_dashboard():
-    if 'user_email' not in session:
-        return redirect('/')
+    if 'user_email' not in session: return redirect('/')
     return render_template('exam.html', name=session['user_name'], email=session['user_email'])
 
 @app.route('/admin')
 def admin_panel():
-    try:
-        conn = sqlite3.connect('exam_system.db')
-        c = conn.cursor()
-        c.execute("SELECT * FROM users")
-        users = c.fetchall()
-        c.execute("SELECT * FROM logs ORDER BY timestamp DESC")
-        logs = c.fetchall()
-        conn.close()
-        return render_template('admin.html', users=users, logs=logs)
-    except:
-        return "Database Error"
+    # Security: Only Admin can access
+    if 'user_email' not in session or session.get('role') != 'Admin':
+        return "Access Denied. Admins Only."
 
-# ---------------- CORE AI LOGIC (OPTIMIZED) ----------------
+    conn = sqlite3.connect('visionguard_v2.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE role='Student'") # Show only students
+    users = c.fetchall()
+    c.execute("SELECT * FROM logs ORDER BY timestamp DESC")
+    logs = c.fetchall()
+    conn.close()
+    return render_template('admin.html', users=users, logs=logs)
+
+# ---------------- ULTRA-LITE DETECTION ----------------
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     global last_processed_time
-    
     if 'user_email' not in session: return jsonify({"status": "error"})
-
-    # ⏳ THROTTLING: Agar pichle 1 second mein check hua hai, to abhi mat karo (RAM Bachao)
-    if time.time() - last_processed_time < 1.0:
-        return jsonify({"status": "Skipped (Saving RAM)", "color": "#28a745"})
+    
+    user = session['user_email']
+    current_time = time.time()
+    
+    # 2 Second Throttle per User (RAM Saving)
+    if user in last_processed_time and (current_time - last_processed_time[user] < 2.0):
+        return jsonify({"status": "Skipped", "color": "#28a745"})
 
     try:
-        last_processed_time = time.time()
+        last_processed_time[user] = current_time
         
         data = request.json['image']
         header, encoded = data.split(",", 1)
@@ -185,49 +192,47 @@ def process_frame():
         img_arr = np.frombuffer(binary, np.uint8)
         frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
 
-        # Frame Resize (Bahut Zaroori for Speed)
+        # 🔥 CRITICAL: Resize to 240p BEFORE Processing (RAM Saver)
         frame = cv2.resize(frame, (320, 240))
 
         status = "Focused ✅"
         color = "#28a745"
-        final_alert = ""
+        alert = ""
 
-        # 1. Face & Gaze Detection
+        # 1. Face Check
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
         
-        face_found = False
         if results.multi_face_landmarks:
-            face_found = True
             for face in results.multi_face_landmarks:
                 nose_x = face.landmark[1].x
-                nose_y = face.landmark[1].y
-                
-                # Sensitivity Adjustment
-                if nose_x < 0.30: final_alert = "Looking Right"
-                elif nose_x > 0.70: final_alert = "Looking Left"
-                elif nose_y < 0.15: final_alert = "Looking Up"
+                # Sensitive thresholds
+                if nose_x < 0.25: alert = "Looking Right"
+                elif nose_x > 0.75: alert = "Looking Left"
         else:
-            final_alert = "Face Missing"
+            alert = "Face Missing"
 
-        # 2. YOLO Phone Detection (Sirf tab chalao agar koi aur alert nahi hai)
-        if yolo_model and not final_alert:
-            # conf=0.35 (Thoda sensitive)
+        # 2. YOLO Phone Check (If no face alert)
+        if yolo_model and not alert:
+            # conf=0.35
             yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.35)
             for r in yolo_res:
                 if len(r.boxes) > 0:
-                    final_alert = "Mobile Phone"
+                    alert = "Mobile Phone"
 
-        # 3. Final Decision
-        if final_alert:
-            status = f"⚠️ {final_alert.upper()}"
+        if alert:
+            status = f"⚠️ {alert.upper()}"
             color = "#dc3545"
-            log_violation_db(session['user_email'], final_alert)
+            log_violation_db(session['user_email'], alert)
+        
+        # Cleanup RAM
+        del frame, rgb, results
+        gc.collect() 
         
         return jsonify({"status": status, "color": color})
 
     except Exception as e:
-        print(f"Processing Error: {e}")
+        print(f"Error: {e}")
         return jsonify({"status": "Server Busy", "color": "orange"})
 
 @app.route('/record_tab_switch', methods=['POST'])
@@ -243,12 +248,13 @@ def submit_exam():
     user_email = session['user_email']
     user_name = session['user_name']
 
-    conn = sqlite3.connect('exam_system.db')
+    conn = sqlite3.connect('visionguard_v2.db')
     c = conn.cursor()
     c.execute("SELECT alert_type, timestamp FROM logs WHERE user_email=?", (user_email,))
     logs = c.fetchall()
     conn.close()
 
+    # HTML Email Report
     report_html = f"<h2>Exam Report: {user_name}</h2><p>Email: {user_email}</p><hr><h3>Incidents:</h3><ul>"
     if not logs:
         report_html += "<li>✅ Clean Record</li>"
@@ -269,11 +275,12 @@ def submit_exam():
         s.login(SENDER_EMAIL, APP_PASSWORD)
         s.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
         s.quit()
+        print("✅ Email Sent Successfully")
     except Exception as e:
-        print(f"Email Error: {e}")
+        print(f"❌ Email Error: {e}")
 
     session.clear()
-    return jsonify({"status": "success", "message": "Exam Submitted Successfully!"})
+    return jsonify({"status": "success", "message": "Exam Submitted & Email Sent!"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
