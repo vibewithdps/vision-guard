@@ -17,21 +17,19 @@ app.secret_key = 'super_secret_key_visionguard'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-APP_PASSWORD = "tlqv tasd pjmo xviz"  # ⚠️ Apna password yahan dalein
+APP_PASSWORD = "tlqv tasd pjmo xviz"  # ⚠️ PASSWORD DOBARA DAAL DENA
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
 UPLOAD_FOLDER = 'static/uploads'
 if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
-# --- DATABASE SETUP ---
+# --- DATABASE INIT ---
 def init_db():
     conn = sqlite3.connect('exam_system.db')
     c = conn.cursor()
-    # User Table (Photo path bhi save karega)
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (id INTEGER PRIMARY KEY, full_name TEXT, email TEXT, mobile TEXT, 
                   gender TEXT, password TEXT, photo_path TEXT)''')
-    # Logs Table (Saari cheating yahan save hogi)
     c.execute('''CREATE TABLE IF NOT EXISTS logs 
                  (id INTEGER PRIMARY KEY, user_email TEXT, alert_type TEXT, timestamp TEXT)''')
     conn.commit()
@@ -39,35 +37,31 @@ def init_db():
 
 init_db()
 
-# --- AI MODELS ---
+# --- AI MODELS LOAD ---
 try:
+    # Load YOLOv8 Nano (Smallest Model)
     yolo_model = YOLO("yolov8n.pt")
-except:
+    print("✅ YOLO Model Loaded Successfully")
+except Exception as e:
     yolo_model = None
+    print(f"⚠️ YOLO Error: {e}")
 
+# MediaPipe Face Mesh
 mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1, refine_landmarks=True)
+face_mesh = mp_face_mesh.FaceMesh(
+    max_num_faces=1,
+    refine_landmarks=True,
+    min_detection_confidence=0.3, # Thoda sensitive banaya
+    min_tracking_confidence=0.3
+)
 
 # --- HELPER FUNCTIONS ---
-def save_base64_image(data_str, filename):
-    if not data_str: return None
-    try:
-        header, encoded = data_str.split(",", 1)
-        data = base64.b64decode(encoded)
-        path = os.path.join(UPLOAD_FOLDER, filename)
-        with open(path, "wb") as f:
-            f.write(data)
-        return path
-    except:
-        return None
-
 def log_violation_db(email, alert):
-    """Har detection ko database mein save karega"""
     conn = sqlite3.connect('exam_system.db')
     c = conn.cursor()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
-    # Spam check (Agar 3 sec pehle same alert tha toh mat likho)
+    # 2 Second Spam Check
     c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
     last = c.fetchone()
     should_log = True
@@ -80,8 +74,19 @@ def log_violation_db(email, alert):
         c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                   (email, alert, timestamp))
         conn.commit()
-        print(f"💾 Saved to DB: {alert} for {email}")
+        print(f"💾 DATABASE SAVED: {alert}") # LOG MEIN DIKHEGA
     conn.close()
+
+def save_base64_image(data_str, filename):
+    if not data_str: return None
+    try:
+        header, encoded = data_str.split(",", 1)
+        data = base64.b64decode(encoded)
+        path = os.path.join(UPLOAD_FOLDER, filename)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+    except: return None
 
 # --- ROUTES ---
 
@@ -95,11 +100,7 @@ def home():
 def register():
     try:
         data = request.json
-        # Photo save karna
-        photo_filename = f"{data['email']}_profile.jpg"
-        photo_path = save_base64_image(data['live_photo'], photo_filename)
-        
-        # Password Hash
+        photo_path = save_base64_image(data['live_photo'], f"{data['email']}_profile.jpg")
         hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
 
         conn = sqlite3.connect('exam_system.db')
@@ -108,15 +109,11 @@ def register():
             c.execute("INSERT INTO users (full_name, email, mobile, gender, password, photo_path) VALUES (?,?,?,?,?,?)",
                       (data['full_name'], data['email'], data['mobile'], data['gender'], hashed_pwd, photo_path))
             conn.commit()
-            status = "success"
-            msg = "Registration Successful!"
+            return jsonify({"status": "success", "message": "Registered!"})
         except sqlite3.IntegrityError:
-            status = "error"
-            msg = "Email already exists!"
+            return jsonify({"status": "error", "message": "Email already exists!"})
         finally:
             conn.close()
-
-        return jsonify({"status": status, "message": msg})
     except Exception as e:
         return jsonify({"status": "error", "message": str(e)})
 
@@ -124,31 +121,41 @@ def register():
 def login():
     data = request.json
     hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
-
     conn = sqlite3.connect('exam_system.db')
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE email=? AND password=?", (data['email'], hashed_pwd))
     user = c.fetchone()
     conn.close()
-
     if user:
         session['user_email'] = user[2]
         session['user_name'] = user[1]
         return jsonify({"status": "success", "redirect": "/exam"})
     else:
-        return jsonify({"status": "error", "message": "Wrong Email or Password"})
+        return jsonify({"status": "error", "message": "Invalid Credentials"})
 
 @app.route('/exam')
 def exam_dashboard():
-    if 'user_email' not in session:
-        return redirect('/')
+    if 'user_email' not in session: return redirect('/')
     return render_template('exam.html', name=session['user_name'], email=session['user_email'])
 
+@app.route('/admin')
+def admin_panel():
+    conn = sqlite3.connect('exam_system.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM users")
+    users = c.fetchall()
+    c.execute("SELECT * FROM logs ORDER BY timestamp DESC")
+    logs = c.fetchall()
+    conn.close()
+    return render_template('admin.html', users=users, logs=logs)
+
+# ---------------- CORE AI LOGIC (UPDATED) ----------------
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
 
     try:
+        # 1. Image Decode
         data = request.json['image']
         header, encoded = data.split(",", 1)
         binary = base64.b64decode(encoded)
@@ -157,39 +164,47 @@ def process_frame():
 
         status = "Focused ✅"
         color = "#28a745"
-        alert = ""
+        alerts = [] # Multiple alerts ek sath collect karenge
 
-        # AI Detection Logic
+        # 2. Face & Gaze Detection
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
         
+        face_found = False
         if results.multi_face_landmarks:
+            face_found = True
             for face in results.multi_face_landmarks:
                 nose_x = face.landmark[1].x
-                if nose_x < 0.2:
-                    alert = "Looking Right"
-                    status = "Looking RIGHT ⚠️"; color = "#dc3545"
-                elif nose_x > 0.8:
-                    alert = "Looking Left"
-                    status = "Looking LEFT ⚠️"; color = "#dc3545"
+                nose_y = face.landmark[1].y
+                
+                # Sensitivity Adjustment
+                if nose_x < 0.25: alerts.append("Looking Right")
+                elif nose_x > 0.75: alerts.append("Looking Left")
+                elif nose_y < 0.15: alerts.append("Looking Up")
         else:
-            alert = "Face Missing"
-            status = "No Face Detected ⚠️"; color = "#ffc107"
+            alerts.append("No Face Detected")
 
-        if yolo_model and not alert:
-            yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.4)
+        # 3. YOLO Phone Detection (Separate Check)
+        # imgsz=320 RAM bachane ke liye zaroori hai
+        if yolo_model:
+            yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.35, imgsz=320)
             for r in yolo_res:
                 if len(r.boxes) > 0:
-                    alert = "Mobile Phone"
-                    status = "PHONE DETECTED 📱"; color = "#dc3545"
+                    alerts.append("Mobile Phone")
 
-        # 🛑 DATABASE SAVE (Yaha ho raha hai save)
-        if alert:
-            log_violation_db(session['user_email'], alert)
-
+        # 4. Final Decision
+        if alerts:
+            final_alert = alerts[0] # Pehla alert uthao
+            status = f"⚠️ {final_alert.upper()}"
+            color = "#dc3545"
+            # Database Log
+            log_violation_db(session['user_email'], final_alert)
+        
         return jsonify({"status": status, "color": color})
-    except:
-        return jsonify({"status": "error"})
+
+    except Exception as e:
+        print(f"Processing Error: {e}") # Render Logs mein error dikhega
+        return jsonify({"status": "Server Busy", "color": "orange"})
 
 @app.route('/record_tab_switch', methods=['POST'])
 def record_tab_switch():
@@ -201,28 +216,41 @@ def record_tab_switch():
 def submit_exam():
     if 'user_email' not in session: return jsonify({"status": "error"})
     
-    # Email logic (Same as before)
-    # ... (Email code yaha same rahega)
-    
-    session.clear()
-    return jsonify({"status": "success", "message": "Exam Submitted!"})
+    user_email = session['user_email']
+    user_name = session['user_name']
 
-# --- NEW: ADMIN PANEL ROUTE (Yahan dikhega data) ---
-@app.route('/admin')
-def admin_panel():
     conn = sqlite3.connect('exam_system.db')
     c = conn.cursor()
-    
-    # Get Users
-    c.execute("SELECT * FROM users")
-    users = c.fetchall()
-    
-    # Get Logs
-    c.execute("SELECT * FROM logs ORDER BY timestamp DESC")
+    c.execute("SELECT alert_type, timestamp FROM logs WHERE user_email=?", (user_email,))
     logs = c.fetchall()
     conn.close()
-    
-    return render_template('admin.html', users=users, logs=logs)
+
+    # Generate HTML Report
+    report_html = f"<h2>Exam Report: {user_name}</h2><p>Email: {user_email}</p><hr><h3>Incidents:</h3><ul>"
+    if not logs:
+        report_html += "<li>✅ Clean Record (No Cheating Detected)</li>"
+    else:
+        for alert, time in logs:
+            report_html += f"<li style='color:red'>[{time}] {alert}</li>"
+    report_html += "</ul>"
+
+    try:
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECEIVER_EMAIL
+        msg['Subject'] = f"Exam Report: {user_name}"
+        msg.attach(MIMEText(report_html, 'html'))
+
+        s = smtplib.SMTP('smtp.gmail.com', 587)
+        s.starttls()
+        s.login(SENDER_EMAIL, APP_PASSWORD)
+        s.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        s.quit()
+    except Exception as e:
+        print(f"Email Error: {e}")
+
+    session.clear()
+    return jsonify({"status": "success", "message": "Exam Submitted Successfully!"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
