@@ -1,7 +1,7 @@
 flask
 gunicorn
-numpy
+numpy==1.24.3
 opencv-python-headless
 protobuf==3.20.3
-mediapipe
-ultralytics
+mediapipe==0.10.9
+ultralytics==8.0.145
