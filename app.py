@@ -5,7 +5,6 @@ import mediapipe as mp
 from ultralytics import YOLO
 import time
 import os
-import socket
 import base64
 from datetime import datetime
 import threading
@@ -20,24 +19,22 @@ app = Flask(__name__)
 # ⚙️ SETTINGS
 # ==========================================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-APP_PASSWORD = "rbwg hvip ojxb wabc"  # Apna App Password Dalein
+APP_PASSWORD = "tlqv tasd pjmo xviz"  # ⚠️ Yahan apna App Password wapas daal dena
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
 CONFIDENCE_THRESHOLD = 0.5
-PHONE_CLASS_ID = 67
+PHONE_CLASS_ID = 67 # Cell phone class ID in COCO
 LOG_FOLDER = "cheating_evidence"
-# Audio threshold thoda badha diya taaki fan ki aawaz se trigger na ho
 AUDIO_THRESHOLD = 15.0 
-FRAME_SKIP = 3        
-RESIZE_WIDTH = 640    
 
 if not os.path.exists(LOG_FOLDER): os.makedirs(LOG_FOLDER)
 
 # --- GLOBAL VARS ---
 audio_alert = False
-student_details = {"name": "Unknown", "roll": "N/A", "camera_type": "Laptop"}
+student_details = {"name": "Unknown", "roll": "N/A"}
 
 # --- AUDIO MOCK SETUP (Server Crash na ho isliye) ---
+# Render par mic nahi hota, isliye ye Mock Class zaroori hai
 try:
     import sounddevice as sd
 except (OSError, ImportError):
@@ -53,7 +50,8 @@ except (OSError, ImportError):
             return MockStream()
     sd = MockSD()
 
-# --- AUDIO THREAD ---
+# --- AUDIO THREAD (Server Side) ---
+# Ye thread chalta rahega taaki purana logic break na ho
 def audio_callback(indata, frames, time, status):
     global audio_alert
     try:
@@ -72,11 +70,18 @@ def start_audio_stream():
 
 threading.Thread(target=start_audio_stream, daemon=True).start()
 
-# --- AI SYSTEM CLASS ---
+# --- AI SYSTEM CLASS (Modified for Render) ---
 class VisionGuardSystem:
     def __init__(self):
         print("🚀 Loading AI Models...")
-        self.yolo_model = YOLO("yolov8n.pt") 
+        # YOLO Load
+        try:
+            self.yolo_model = YOLO("yolov8n.pt") 
+        except Exception as e:
+            print(f"YOLO Error: {e}")
+            self.yolo_model = None
+
+        # MediaPipe Load
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             max_num_faces=1,
@@ -84,22 +89,15 @@ class VisionGuardSystem:
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5
         )
-        self.cap = None 
-        self.cheating_log = [] 
         
-    def start_camera(self):
-        if self.cap is not None: self.cap.release()
-        if platform.system() == "Darwin":
-            self.cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
-        else:
-            self.cap = cv2.VideoCapture(0)
+        self.cheating_log = [] 
+        self.last_log_time = datetime.now()
 
     def log_incident(self, reason):
-        # Spam rokne ke liye: Agar pichle 2 second mein log kiya hai to dobara mat karo
+        # Spam rokne ke liye: Agar pichle 3 second mein log kiya hai to wait karo
         current_time = datetime.now()
         ts_str = current_time.strftime("%H:%M:%S")
         
-        # Check duplicate logs (Simple throttling)
         if len(self.cheating_log) > 0:
             last_log = self.cheating_log[-1]
             if reason in last_log and (current_time - self.last_log_time).seconds < 3:
@@ -110,65 +108,74 @@ class VisionGuardSystem:
         print(f"📝 Logged: {reason}")
         return True
 
-    def generate_frames(self):
+    # --- NEW: Function to process single frame from Frontend ---
+    def process_single_frame(self, base64_image):
         global audio_alert
-        self.last_log_time = datetime.now()
-        
-        while True:
-            if self.cap is None or not self.cap.isOpened():
-                time.sleep(0.1); continue
-            
-            success, frame = self.cap.read()
-            if not success: break
-            
-            # Mirror frame for user comfort
-            frame = cv2.flip(frame, 1)
+        try:
+            # 1. Decode Image
+            header, encoded = base64_image.split(",", 1)
+            binary_data = base64.b64decode(encoded)
+            np_arr = np.frombuffer(binary_data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            # 2. Setup Variables
+            status_text = "Focused ✅"
+            color = "#28a745" # Green
+            alert_reason = ""
+
             h, w, _ = frame.shape
-            
-            # --- 1. DETECT GAZE (IDHAR UDHAR DEKHNA) ---
             rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # 3. Gaze Tracking (MediaPipe)
             results = self.face_mesh.process(rgb_frame)
-            
-            status_text = "Status: Focused ✅"
-            color = (0, 255, 0)
             
             if results.multi_face_landmarks:
                 for face_landmarks in results.multi_face_landmarks:
-                    # Nose Tip (Index 1) coordinates nikalo
                     nose_x = face_landmarks.landmark[1].x
                     nose_y = face_landmarks.landmark[1].y
                     
-                    # Logic: Agar naak screen ke 20% left ya 80% right se bahar gayi
                     if nose_x < 0.20:
-                        status_text = "WARNING: Looking RIGHT ⚠️"
-                        color = (0, 0, 255)
-                        self.log_incident("Looking Away (Right)")
+                        status_text = "Looking RIGHT ⚠️"
+                        color = "#dc3545" # Red
+                        alert_reason = "Looking Away (Right)"
                     elif nose_x > 0.80:
-                        status_text = "WARNING: Looking LEFT ⚠️"
-                        color = (0, 0, 255)
-                        self.log_incident("Looking Away (Left)")
-                    elif nose_y < 0.15: # Too high (Looking up)
-                         status_text = "WARNING: Looking UP ⚠️"
-                         color = (0, 0, 255)
-                         self.log_incident("Looking Up")
+                        status_text = "Looking LEFT ⚠️"
+                        color = "#dc3545" # Red
+                        alert_reason = "Looking Away (Left)"
+                    elif nose_y < 0.15: 
+                         status_text = "Looking UP ⚠️"
+                         color = "#dc3545" 
+                         alert_reason = "Looking Up"
             else:
-                status_text = "WARNING: No Face Detected ⚠️"
-                color = (0, 0, 255)
-                # self.log_incident("Face Missing") # Optional
+                status_text = "No Face Detected ⚠️"
+                color = "#ffc107" # Yellow
+                alert_reason = "Face Missing"
 
-            # --- 2. AUDIO ALERT ---
+            # 4. Phone Detection (YOLO)
+            # Optimization: Sirf tab check karo jab status normal ho (Speed badhane ke liye)
+            if self.yolo_model and alert_reason == "":
+                yolo_results = self.yolo_model(frame, verbose=False, classes=[67], conf=0.5)
+                for r in yolo_results:
+                    if len(r.boxes) > 0:
+                        status_text = "PHONE DETECTED 📱"
+                        color = "#dc3545"
+                        alert_reason = "Mobile Phone Detected"
+
+            # 5. Audio Alert (Server side variable check)
             if audio_alert:
-                cv2.putText(frame, "NOISE DETECTED 🎤", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-                self.log_incident("High Volume / Talking")
+                status_text = "NOISE DETECTED 🎤"
+                color = "#dc3545"
+                alert_reason = "High Volume / Talking"
 
-            # --- 3. PHONE DETECTION (YOLO) ---
-            # Har frame par YOLO mat chalao, heavy ho jayega. Har 5th frame par chalao
-            # (Simplification for speed)
-            
-            cv2.putText(frame, status_text, (20, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-            
-            ret, buffer = cv2.imencode('.jpg', frame)
-            yield (b'--frame\r\n' b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            # 6. Logging
+            if alert_reason:
+                self.log_incident(alert_reason)
+
+            return {"status": status_text, "color": color}
+
+        except Exception as e:
+            print(f"Processing Error: {e}")
+            return {"status": "Error", "color": "gray"}
 
     def generate_report(self):
         body = f"""
@@ -185,6 +192,7 @@ class VisionGuardSystem:
 system = VisionGuardSystem()
 
 # --- ROUTES ---
+
 @app.route('/')
 def login_page():
     return render_template('login.html')
@@ -194,15 +202,27 @@ def start_exam():
     global student_details
     student_details['name'] = request.form.get('name')
     student_details['roll'] = request.form.get('roll')
-    
-    system.start_camera()
+    # Note: start_camera() hata diya kyunki Render par webcam nahi hota
     return render_template('exam.html', student=student_details)
 
-@app.route('/video_feed')
-def video_feed():
-    return Response(system.generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+# --- NEW ROUTE FOR RENDER (Replaces video_feed) ---
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    """Browser se aayi hui photo ko process karega"""
+    try:
+        json_data = request.json
+        image_data = json_data.get('image')
+        
+        # Audio status from frontend (Optional)
+        frontend_audio = json_data.get('audio_alert', False)
+        if frontend_audio:
+            system.log_incident("Noise Detected (Frontend)")
 
-# TAB SWITCH RECORD KARNE KE LIYE
+        result = system.process_single_frame(image_data)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
 @app.route('/record_incident', methods=['POST'])
 def record_incident():
     data = request.json
@@ -214,10 +234,26 @@ def record_incident():
 def end_exam():
     try:
         report = system.generate_report()
-        # Email logic same as before...
-        return jsonify({"status": "success", "message": "Exam Submitted!"})
+        
+        # Email Logic Preserved
+        msg = MIMEMultipart()
+        msg['From'] = SENDER_EMAIL
+        msg['To'] = RECEIVER_EMAIL
+        msg['Subject'] = f"Exam Report: {student_details['name']}"
+        msg.attach(MIMEText(report, 'html'))
+        
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(SENDER_EMAIL, APP_PASSWORD)
+        server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        server.quit()
+        
+        return jsonify({"status": "success", "message": "Exam Submitted & Report Sent!"})
     except Exception as e:
-        return jsonify({"status": "error", "message": str(e)})
+        print(f"Email Error: {e}")
+        return jsonify({"status": "error", "message": "Report Generated but Email Failed (Check Password)"})
 
 if __name__ == "__main__":
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Render port automatically set karta hai environment variable se
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
