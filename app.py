@@ -11,27 +11,31 @@ from email.mime.multipart import MIMEMultipart
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import sqlite3
 import hashlib
-import time
 
 app = Flask(__name__)
-app.secret_key = 'visionguard_final_key'
+app.secret_key = 'ultimate_final_key_v3'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-APP_PASSWORD = "YOUR_APP_PASSWORD_HERE"  # ⚠️ Yahan Google App Password Dalein
+# ⚠️ Yahan wo 16-digit App Password daalein (Bina spaces ke)
+APP_PASSWORD = "akzw jzia itbv cmli" 
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
-DB_NAME = "visionguard_final.db" # ✅ FIXED NAME
+# DB Name fix
+DB_NAME = "visionguard_v3.db"
 UPLOAD_FOLDER = 'static/uploads'
+
 if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
 # --- DATABASE SETUP ---
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
+    # Users Table
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (id INTEGER PRIMARY KEY, full_name TEXT, email TEXT, mobile TEXT, 
                   gender TEXT, role TEXT, password TEXT, photo_path TEXT)''')
+    # Logs Table
     c.execute('''CREATE TABLE IF NOT EXISTS logs 
                  (id INTEGER PRIMARY KEY, user_email TEXT, alert_type TEXT, timestamp TEXT)''')
     conn.commit()
@@ -42,7 +46,7 @@ init_db()
 # --- AI MODELS ---
 print("🚀 Loading AI Models...")
 try:
-    yolo_model = YOLO("yolov8n.pt") 
+    yolo_model = YOLO("yolov8n.pt")
     print("✅ YOLO Loaded")
 except:
     yolo_model = None
@@ -52,8 +56,8 @@ mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
     max_num_faces=1,
     refine_landmarks=True,
-    min_detection_confidence=0.2, # 🔥 Aggressive Detection
-    min_tracking_confidence=0.2
+    min_detection_confidence=0.1, # Sensitivity High
+    min_tracking_confidence=0.1
 )
 
 # --- HELPER FUNCTIONS ---
@@ -72,22 +76,17 @@ def log_violation_db(email, alert):
     try:
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now().strftime("%H:%M:%S")
         
-        # 1 Second Anti-Spam (Thoda fast kiya)
+        # Avoid duplicate logs in same second
         c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
         last = c.fetchone()
-        should_log = True
-        if last:
-            last_time = datetime.strptime(last[0], "%Y-%m-%d %H:%M:%S")
-            if (datetime.now() - last_time).seconds < 1:
-                should_log = False
         
-        if should_log:
+        if not last or last[0] != timestamp:
             c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                       (email, alert, timestamp))
             conn.commit()
-            print(f"🛑 SAVED TO DB: {alert} | {email}")
+            print(f"🛑 VIOLATION: {alert} ({email})")
         conn.close()
     except Exception as e:
         print(f"DB Error: {e}")
@@ -117,8 +116,8 @@ def register():
             c.execute("INSERT INTO users (full_name, email, mobile, gender, role, password, photo_path) VALUES (?,?,?,?,?,?,?)",
                       (data['full_name'], data['email'], data['mobile'], data['gender'], data['role'], hashed_pwd, photo_path))
             conn.commit()
-            return jsonify({"status": "success", "message": "Registered! Please Login."})
-        except sqlite3.IntegrityError:
+            return jsonify({"status": "success", "message": "Registered!"})
+        except:
             return jsonify({"status": "error", "message": "Email already exists!"})
         finally:
             conn.close()
@@ -127,28 +126,21 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-    try:
-        data = request.json
-        hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
+    data = request.json
+    hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT * FROM users WHERE email=? AND password=?", (data['email'], hashed_pwd))
+    user = c.fetchone()
+    conn.close()
 
-        conn = sqlite3.connect(DB_NAME)
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE email=? AND password=?", (data['email'], hashed_pwd))
-        user = c.fetchone()
-        conn.close()
-
-        if user:
-            session['user_email'] = user[2]
-            session['user_name'] = user[1]
-            session['role'] = user[5]
-            if user[5] == 'Admin':
-                return jsonify({"status": "success", "redirect": "/admin"})
-            else:
-                return jsonify({"status": "success", "redirect": "/exam"})
-        else:
-            return jsonify({"status": "error", "message": "Wrong Credentials"})
-    except:
-        return jsonify({"status": "error", "message": "Login Failed"})
+    if user:
+        session['user_email'] = user[2]
+        session['user_name'] = user[1]
+        session['role'] = user[5]
+        return jsonify({"status": "success", "redirect": "/admin" if user[5] == 'Admin' else "/exam"})
+    else:
+        return jsonify({"status": "error", "message": "Invalid Login"})
 
 @app.route('/exam')
 def exam_dashboard():
@@ -157,10 +149,8 @@ def exam_dashboard():
 
 @app.route('/admin')
 def admin_panel():
-    if 'user_email' not in session or session.get('role') != 'Admin':
-        return "<h3>Access Denied! <a href='/'>Go Home</a></h3>"
-
-    conn = sqlite3.connect(DB_NAME) # ✅ USING CORRECT DB
+    if session.get('role') != 'Admin': return "Access Denied"
+    conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute("SELECT * FROM users WHERE role='Student'")
     users = c.fetchall()
@@ -169,39 +159,38 @@ def admin_panel():
     conn.close()
     return render_template('admin.html', users=users, logs=logs)
 
-# ---------------- DETECTION LOGIC ----------------
+# ---------------- DETECTION CORE ----------------
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
 
     try:
+        # Image Processing
         data = request.json['image']
         header, encoded = data.split(",", 1)
         binary = base64.b64decode(encoded)
         img_arr = np.frombuffer(binary, np.uint8)
         frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
-
-        # Resize for speed but keep it decent for YOLO
+        
+        # Resize to 320p for Speed
         frame = cv2.resize(frame, (320, 240))
 
         status = "Focused ✅"
         color = "#28a745"
         alert = ""
 
-        # 1. Face & Gaze
+        # 1. Face Check
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = face_mesh.process(rgb)
         
         if results.multi_face_landmarks:
-            for face in results.multi_face_landmarks:
-                nose_x = face.landmark[1].x
-                # Sensitive Thresholds
-                if nose_x < 0.2: alert = "Looking Right"
-                elif nose_x > 0.8: alert = "Looking Left"
+            nose_x = results.multi_face_landmarks[0].landmark[1].x
+            if nose_x < 0.2: alert = "Looking Right"
+            elif nose_x > 0.8: alert = "Looking Left"
         else:
             alert = "Face Missing"
 
-        # 2. YOLO (Independent Check) - Always runs if no face alert yet
+        # 2. YOLO Check (Only if face is okay to save speed)
         if yolo_model and not alert:
             yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
             for r in yolo_res:
@@ -215,8 +204,9 @@ def process_frame():
         
         return jsonify({"status": status, "color": color})
 
-    except:
-        return jsonify({"status": "Checking...", "color": "orange"})
+    except Exception as e:
+        print(f"Process Error: {e}")
+        return jsonify({"status": "Active...", "color": "orange"})
 
 @app.route('/record_tab_switch', methods=['POST'])
 def record_tab_switch():
@@ -224,6 +214,7 @@ def record_tab_switch():
         log_violation_db(session['user_email'], "Tab Switched")
     return jsonify({"status": "recorded"})
 
+# --- EMAIL FIX (SSL 465) ---
 @app.route('/submit_exam', methods=['POST'])
 def submit_exam():
     if 'user_email' not in session: return jsonify({"status": "error"})
@@ -237,16 +228,14 @@ def submit_exam():
     logs = c.fetchall()
     conn.close()
 
-    # Generate Report
     report_html = f"<h2>Exam Report: {user_name}</h2><p>Email: {user_email}</p><hr><h3>Incidents:</h3><ul>"
-    if not logs:
-        report_html += "<li>✅ Clean Record</li>"
+    if not logs: report_html += "<li>✅ Clean Record</li>"
     else:
-        for alert, time in logs:
-            report_html += f"<li style='color:red'>[{time}] {alert}</li>"
+        for alert, time in logs: report_html += f"<li style='color:red'>[{time}] {alert}</li>"
     report_html += "</ul>"
 
-    email_status = "Email Sent"
+    print(f"📧 Sending email to {RECEIVER_EMAIL} via Port 465...")
+    
     try:
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
@@ -254,17 +243,18 @@ def submit_exam():
         msg['Subject'] = f"Exam Report: {user_name}"
         msg.attach(MIMEText(report_html, 'html'))
 
-        s = smtplib.SMTP('smtp.gmail.com', 587)
-        s.starttls()
-        s.login(SENDER_EMAIL, APP_PASSWORD)
-        s.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
-        s.quit()
-        print(f"✅ Email sent to {RECEIVER_EMAIL}")
+        # 🔥 CHANGE: Using SMTP_SSL with Port 465 (Works better on Render)
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+        server.login(SENDER_EMAIL, APP_PASSWORD)
+        server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
+        server.quit()
+        
+        print("✅ Email Sent Successfully via SSL!")
+        return jsonify({"status": "success", "message": "Report Sent via Email! 📧"})
+
     except Exception as e:
         print(f"❌ Email Failed: {e}")
-        email_status = f"Email Failed (Check Server Logs)"
-
-    return jsonify({"status": "success", "message": f"Exam Submitted! {email_status}"})
+        return jsonify({"status": "success", "message": f"Submitted. Email Error: {e}"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
