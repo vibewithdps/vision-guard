@@ -16,11 +16,11 @@ import sqlite3
 import hashlib
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_final_key'
+app.secret_key = 'super_secret_final_key_v99'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN (Bina Spaces ke)
+# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN
 APP_PASSWORD = "akzw jzia itbv cmli"
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
@@ -33,11 +33,9 @@ if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    # Users Table
     c.execute('''CREATE TABLE IF NOT EXISTS users 
                  (id INTEGER PRIMARY KEY, full_name TEXT, email TEXT, mobile TEXT, 
                   gender TEXT, role TEXT, password TEXT, photo_path TEXT)''')
-    # Logs Table
     c.execute('''CREATE TABLE IF NOT EXISTS logs 
                  (id INTEGER PRIMARY KEY, user_email TEXT, alert_type TEXT, timestamp TEXT)''')
     conn.commit()
@@ -45,29 +43,28 @@ def init_db():
 
 init_db()
 
-# --- AI MODELS ---
-# Global load ki jagah Lazy Load karenge taaki startup fast ho
-yolo_model = None
-face_mesh = None
+# --- AI MODELS (GLOBAL LOADING FIX) ---
+# Hum models ko wapas upar le aaye hain taaki "AttributeError" na aaye
+print("🚀 Loading AI Models Global...")
+try:
+    yolo_model = YOLO("yolov8n.pt")
+    print("✅ YOLO Loaded")
+except:
+    yolo_model = None
+    print("❌ YOLO Failed")
 
-def load_models():
-    global yolo_model, face_mesh
-    if yolo_model is None:
-        print("⏳ Loading YOLO...")
-        try:
-            yolo_model = YOLO("yolov8n.pt")
-        except:
-            print("❌ YOLO Failed")
-    
-    if face_mesh is None:
-        print("⏳ Loading FaceMesh...")
-        mp_face_mesh = mp.solutions.face_mesh
-        face_mesh = mp_face_mesh.FaceMesh(
-            max_num_faces=1,
-            refine_landmarks=True,
-            min_detection_confidence=0.2,
-            min_tracking_confidence=0.2
-        )
+try:
+    mp_face_mesh = mp.solutions.face_mesh
+    face_mesh = mp_face_mesh.FaceMesh(
+        max_num_faces=1,
+        refine_landmarks=True,
+        min_detection_confidence=0.2,
+        min_tracking_confidence=0.2
+    )
+    print("✅ FaceMesh Loaded")
+except Exception as e:
+    print(f"❌ FaceMesh Error: {e}")
+    face_mesh = None
 
 # --- HELPER FUNCTIONS ---
 def save_base64_image(data_str, filename):
@@ -78,7 +75,10 @@ def save_base64_image(data_str, filename):
         path = os.path.join(UPLOAD_FOLDER, filename)
         with open(path, "wb") as f:
             f.write(data)
-        return path
+        
+        # 🔥 FIX: Return path with leading slash for Browser
+        # Browser ko batana padega ki ye root se start hota hai
+        return "/" + path 
     except: return None
 
 def log_violation_db(email, alert):
@@ -87,7 +87,6 @@ def log_violation_db(email, alert):
         c = conn.cursor()
         timestamp = datetime.now().strftime("%H:%M:%S")
         
-        # 1 Second Spam Filter
         c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
         last = c.fetchone()
         
@@ -115,7 +114,9 @@ def logout():
 def register():
     try:
         data = request.json
+        # Photo path save karte waqt dhyan rakhein
         photo_path = save_base64_image(data['live_photo'], f"{data['email']}_profile.jpg")
+        
         hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
 
         conn = sqlite3.connect(DB_NAME)
@@ -153,8 +154,6 @@ def login():
 @app.route('/exam')
 def exam_dashboard():
     if 'user_email' not in session: return redirect('/')
-    # Exam page open hote hi models load kar lo
-    load_models() 
     return render_template('exam.html', name=session['user_name'], email=session['user_email'])
 
 @app.route('/admin')
@@ -173,9 +172,6 @@ def admin_panel():
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
-    
-    # Ensure models are loaded
-    if yolo_model is None: load_models()
 
     try:
         data = request.json['image']
@@ -184,21 +180,22 @@ def process_frame():
         img_arr = np.frombuffer(binary, np.uint8)
         frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
         
-        # Resize for Speed (320p)
+        # Resize for Speed
         frame = cv2.resize(frame, (320, 240))
 
         status = "Focused ✅"; color = "#28a745"; alert = ""
 
         # Face Logic
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(rgb)
-        if results.multi_face_landmarks:
-            nose_x = results.multi_face_landmarks[0].landmark[1].x
-            if nose_x < 0.2: alert = "Looking Right"
-            elif nose_x > 0.8: alert = "Looking Left"
-        else: alert = "Face Missing"
-
-        # YOLO Logic (Only if face is okay)
+        if face_mesh:
+            results = face_mesh.process(rgb)
+            if results.multi_face_landmarks:
+                nose_x = results.multi_face_landmarks[0].landmark[1].x
+                if nose_x < 0.2: alert = "Looking Right"
+                elif nose_x > 0.8: alert = "Looking Left"
+            else: alert = "Face Missing"
+        
+        # YOLO Logic
         if yolo_model and not alert:
             yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
             for r in yolo_res:
@@ -239,7 +236,6 @@ def submit_exam():
     report_html += "</ul>"
 
     try:
-        print(f"📧 Sending email to {RECEIVER_EMAIL}...")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
         msg['To'] = RECEIVER_EMAIL
@@ -251,12 +247,11 @@ def submit_exam():
         server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
         server.quit()
         
-        print("✅ Email Sent!")
         return jsonify({"status": "success", "message": "Exam Submitted & Email Sent!"})
 
     except Exception as e:
-        print(f"❌ Email Error: {e}")
-        return jsonify({"status": "success", "message": f"Submitted (Email Error: {str(e)})"})
+        print(f"Email Error: {e}")
+        return jsonify({"status": "success", "message": f"Submitted (Email Error: {e})"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
