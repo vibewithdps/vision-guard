@@ -1,5 +1,5 @@
 import os
-# 🚀 SPEED FIX: Sabse pehle ye line zaroori hai taaki server atke nahi
+# 🚀 SPEED FIX: Matplotlib Cache issue solve karne ke liye
 os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib'
 
 import cv2
@@ -16,15 +16,14 @@ import sqlite3
 import hashlib
 
 app = Flask(__name__)
-app.secret_key = 'final_exam_system_key'
+app.secret_key = 'super_secret_final_key'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN
-APP_PASSWORD = "akzw jzia itbv cmli" 
+# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN (Bina Spaces ke)
+APP_PASSWORD = "akzw jzia itbv cmli"
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
-# ✅ DATABASE (Wahi purana wala)
 DB_NAME = "exam_system.db"
 UPLOAD_FOLDER = 'static/uploads'
 
@@ -47,21 +46,28 @@ def init_db():
 init_db()
 
 # --- AI MODELS ---
-print("🚀 Loading AI Models (optimized)...")
-try:
-    yolo_model = YOLO("yolov8n.pt")
-    print("✅ YOLO Loaded")
-except:
-    yolo_model = None
-    print("❌ YOLO Failed")
+# Global load ki jagah Lazy Load karenge taaki startup fast ho
+yolo_model = None
+face_mesh = None
 
-mp_face_mesh = mp.solutions.face_mesh
-face_mesh = mp_face_mesh.FaceMesh(
-    max_num_faces=1,
-    refine_landmarks=True,
-    min_detection_confidence=0.1,
-    min_tracking_confidence=0.1
-)
+def load_models():
+    global yolo_model, face_mesh
+    if yolo_model is None:
+        print("⏳ Loading YOLO...")
+        try:
+            yolo_model = YOLO("yolov8n.pt")
+        except:
+            print("❌ YOLO Failed")
+    
+    if face_mesh is None:
+        print("⏳ Loading FaceMesh...")
+        mp_face_mesh = mp.solutions.face_mesh
+        face_mesh = mp_face_mesh.FaceMesh(
+            max_num_faces=1,
+            refine_landmarks=True,
+            min_detection_confidence=0.2,
+            min_tracking_confidence=0.2
+        )
 
 # --- HELPER FUNCTIONS ---
 def save_base64_image(data_str, filename):
@@ -81,10 +87,10 @@ def log_violation_db(email, alert):
         c = conn.cursor()
         timestamp = datetime.now().strftime("%H:%M:%S")
         
+        # 1 Second Spam Filter
         c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
         last = c.fetchone()
         
-        # 1 Second Spam Filter
         if not last or last[0] != timestamp:
             c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                       (email, alert, timestamp))
@@ -118,9 +124,9 @@ def register():
             c.execute("INSERT INTO users (full_name, email, mobile, gender, role, password, photo_path) VALUES (?,?,?,?,?,?,?)",
                       (data['full_name'], data['email'], data['mobile'], data['gender'], data['role'], hashed_pwd, photo_path))
             conn.commit()
-            return jsonify({"status": "success", "message": "Registered!"})
+            return jsonify({"status": "success", "message": "Registered! Login Now."})
         except:
-            return jsonify({"status": "error", "message": "Email already used!"})
+            return jsonify({"status": "error", "message": "Email already exists!"})
         finally:
             conn.close()
     except Exception as e:
@@ -147,6 +153,8 @@ def login():
 @app.route('/exam')
 def exam_dashboard():
     if 'user_email' not in session: return redirect('/')
+    # Exam page open hote hi models load kar lo
+    load_models() 
     return render_template('exam.html', name=session['user_name'], email=session['user_email'])
 
 @app.route('/admin')
@@ -161,19 +169,22 @@ def admin_panel():
     conn.close()
     return render_template('admin.html', users=users, logs=logs)
 
-# --- DETECTION ---
+# --- DETECTION CORE ---
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
+    
+    # Ensure models are loaded
+    if yolo_model is None: load_models()
+
     try:
-        # Debugging Print
-        print("📸 Frame Received") 
-        
         data = request.json['image']
         header, encoded = data.split(",", 1)
         binary = base64.b64decode(encoded)
         img_arr = np.frombuffer(binary, np.uint8)
         frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
+        
+        # Resize for Speed (320p)
         frame = cv2.resize(frame, (320, 240))
 
         status = "Focused ✅"; color = "#28a745"; alert = ""
@@ -187,7 +198,7 @@ def process_frame():
             elif nose_x > 0.8: alert = "Looking Left"
         else: alert = "Face Missing"
 
-        # YOLO Logic
+        # YOLO Logic (Only if face is okay)
         if yolo_model and not alert:
             yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
             for r in yolo_res:
@@ -198,7 +209,7 @@ def process_frame():
             log_violation_db(session['user_email'], alert)
         
         return jsonify({"status": status, "color": color})
-    except Exception as e: 
+    except Exception as e:
         print(f"Error: {e}")
         return jsonify({"status": "Active...", "color": "orange"})
 
@@ -228,6 +239,7 @@ def submit_exam():
     report_html += "</ul>"
 
     try:
+        print(f"📧 Sending email to {RECEIVER_EMAIL}...")
         msg = MIMEMultipart()
         msg['From'] = SENDER_EMAIL
         msg['To'] = RECEIVER_EMAIL
@@ -239,11 +251,12 @@ def submit_exam():
         server.sendmail(SENDER_EMAIL, RECEIVER_EMAIL, msg.as_string())
         server.quit()
         
+        print("✅ Email Sent!")
         return jsonify({"status": "success", "message": "Exam Submitted & Email Sent!"})
 
     except Exception as e:
-        print(f"Email Error: {e}")
-        return jsonify({"status": "success", "message": "Submitted (Email Failed)"})
+        print(f"❌ Email Error: {e}")
+        return jsonify({"status": "success", "message": f"Submitted (Email Error: {str(e)})"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))

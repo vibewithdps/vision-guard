@@ -12,8 +12,6 @@
         .btn { padding: 15px 30px; border: none; cursor: pointer; font-size: 18px; margin-top: 20px; border-radius: 5px; color: white; }
         .btn-end { background: #dc3545; }
         .btn-logout { background: #007bff; display: inline-block; margin-top: 20px; text-decoration: none; }
-        
-        /* SUCCESS SCREEN HIDDEN BY DEFAULT */
         #success-screen { display: none; margin-top: 50px; }
     </style>
 </head>
@@ -28,15 +26,14 @@
             <video id="vid" autoplay playsinline></video>
         </div>
         <br>
-        <button class="btn btn-end" onclick="endExam()">End Exam & Submit</button>
+        <button class="btn btn-end" onclick="endExam()" id="submitBtn">End Exam & Submit</button>
     </div>
 
     <div id="success-screen">
         <h1 style="color: green; font-size: 50px;">✅</h1>
-        <h2>Exam Submitted Successfully!</h2>
+        <h2>Exam Submitted!</h2>
         <p id="mail-msg">Report has been generated.</p>
-        
-        <a href="/logout" class="btn btn-logout">LOGOUT & EXIT</a>
+        <a href="/logout" class="btn btn-logout">LOGOUT</a>
     </div>
 
     <canvas id="cvs" style="display:none;"></canvas>
@@ -57,7 +54,7 @@
         } catch(e) { alert("Camera Permission Required!"); }
     }
 
-    // Monitoring Loop (Fast 800ms)
+    // Monitoring Loop (800ms)
     setInterval(() => {
         if(monitoring && video.readyState === 4) {
             canvas.width = 320; 
@@ -84,11 +81,12 @@
     });
 
     function endExam() {
-        if(confirm("Are you sure you want to finish?")) {
-            status.innerText = "Please Wait... Sending Report...";
+        if(confirm("Submit Exam?")) {
+            status.innerText = "Processing... Please Wait...";
+            document.getElementById("submitBtn").disabled = true;
+            document.getElementById("submitBtn").innerText = "Sending Data...";
             monitoring = false;
 
-            // Stop Camera
             if(streamRef) {
                 streamRef.getTracks().forEach(track => track.stop());
                 video.srcObject = null;
@@ -98,13 +96,12 @@
             .then(r => r.json())
             .then(d => {
                 alert(d.message);
-                // SHOW LOGOUT SCREEN
                 document.getElementById('exam-area').style.display = 'none';
                 document.getElementById('success-screen').style.display = 'block';
                 document.getElementById('mail-msg').innerText = d.message;
             })
             .catch(e => {
-                alert("Error submitting. Please Logout manually.");
+                alert("Error. Please Logout.");
                 window.location.href = "/logout";
             });
         }
