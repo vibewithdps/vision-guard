@@ -1,11 +1,9 @@
 import os
-# 🚀 SPEED FIX: Matplotlib Cache issue solve karne ke liye
+# 🚀 SPEED FIX: Matplotlib Cache fix
 os.environ['MPLCONFIGDIR'] = '/tmp/matplotlib'
 
 import cv2
 import numpy as np
-import mediapipe as mp
-from ultralytics import YOLO
 import base64
 from datetime import datetime
 import smtplib
@@ -14,19 +12,19 @@ from email.mime.multipart import MIMEMultipart
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import sqlite3
 import hashlib
+import gc # RAM Safai ke liye
 
 app = Flask(__name__)
-app.secret_key = 'super_secret_final_key_v99'
+app.secret_key = 'bulletproof_key_v100'
 
 # ================= CONFIGURATION =================
 SENDER_EMAIL = "thakurdps795@gmail.com"
-# ⚠️ APNA 16-DIGIT APP PASSWORD YAHAN DALEIN
-APP_PASSWORD = "akzw jzia itbv cmli"
+# ⚠️ PASSWORD YAHAN DALEIN
+APP_PASSWORD = "akzw jzia itbv cmli" 
 RECEIVER_EMAIL = "studydps18@gmail.com"
 
 DB_NAME = "exam_system.db"
 UPLOAD_FOLDER = 'static/uploads'
-
 if not os.path.exists(UPLOAD_FOLDER): os.makedirs(UPLOAD_FOLDER)
 
 # --- DATABASE SETUP ---
@@ -43,17 +41,25 @@ def init_db():
 
 init_db()
 
-# --- AI MODELS (GLOBAL LOADING FIX) ---
-# Hum models ko wapas upar le aaye hain taaki "AttributeError" na aaye
-print("🚀 Loading AI Models Global...")
-try:
-    yolo_model = YOLO("yolov8n.pt")
-    print("✅ YOLO Loaded")
-except:
-    yolo_model = None
-    print("❌ YOLO Failed")
+# --- SAFE AI LOADING (CRASH ROKNE KE LIYE) ---
+yolo_model = None
+face_mesh = None
 
+print("🚀 Starting AI Loading Sequence...")
+
+# 1. Try Loading YOLO (Phone Detection)
 try:
+    from ultralytics import YOLO
+    # Load Nano model (Lightweight)
+    yolo_model = YOLO("yolov8n.pt")
+    print("✅ YOLO Loaded Successfully")
+except Exception as e:
+    print(f"⚠️ YOLO Failed (Phone detection disabled): {e}")
+    yolo_model = None
+
+# 2. Try Loading MediaPipe (Face Detection)
+try:
+    import mediapipe as mp
     mp_face_mesh = mp.solutions.face_mesh
     face_mesh = mp_face_mesh.FaceMesh(
         max_num_faces=1,
@@ -61,10 +67,16 @@ try:
         min_detection_confidence=0.2,
         min_tracking_confidence=0.2
     )
-    print("✅ FaceMesh Loaded")
+    print("✅ MediaPipe Loaded Successfully")
 except Exception as e:
-    print(f"❌ FaceMesh Error: {e}")
+    print(f"⚠️ MediaPipe Failed (Face detection disabled): {e}")
     face_mesh = None
+    # Fix for attribute error: Force reload if needed
+    try:
+        import mediapipe.python.solutions.face_mesh as mp_face_mesh
+        face_mesh = mp_face_mesh.FaceMesh(max_num_faces=1)
+        print("✅ MediaPipe Loaded via Fallback")
+    except: pass
 
 # --- HELPER FUNCTIONS ---
 def save_base64_image(data_str, filename):
@@ -75,9 +87,6 @@ def save_base64_image(data_str, filename):
         path = os.path.join(UPLOAD_FOLDER, filename)
         with open(path, "wb") as f:
             f.write(data)
-        
-        # 🔥 FIX: Return path with leading slash for Browser
-        # Browser ko batana padega ki ye root se start hota hai
         return "/" + path 
     except: return None
 
@@ -86,10 +95,8 @@ def log_violation_db(email, alert):
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         timestamp = datetime.now().strftime("%H:%M:%S")
-        
         c.execute("SELECT timestamp FROM logs WHERE user_email=? ORDER BY id DESC LIMIT 1", (email,))
         last = c.fetchone()
-        
         if not last or last[0] != timestamp:
             c.execute("INSERT INTO logs (user_email, alert_type, timestamp) VALUES (?, ?, ?)", 
                       (email, alert, timestamp))
@@ -99,7 +106,6 @@ def log_violation_db(email, alert):
     except: pass
 
 # --- ROUTES ---
-
 @app.route('/')
 def home():
     session.clear()
@@ -114,11 +120,8 @@ def logout():
 def register():
     try:
         data = request.json
-        # Photo path save karte waqt dhyan rakhein
         photo_path = save_base64_image(data['live_photo'], f"{data['email']}_profile.jpg")
-        
         hashed_pwd = hashlib.sha256(data['password'].encode()).hexdigest()
-
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         try:
@@ -142,7 +145,6 @@ def login():
     c.execute("SELECT * FROM users WHERE email=? AND password=?", (data['email'], hashed_pwd))
     user = c.fetchone()
     conn.close()
-
     if user:
         session['user_email'] = user[2]
         session['user_name'] = user[1]
@@ -168,7 +170,7 @@ def admin_panel():
     conn.close()
     return render_template('admin.html', users=users, logs=logs)
 
-# --- DETECTION CORE ---
+# --- ROBUST DETECTION CORE ---
 @app.route('/process_frame', methods=['POST'])
 def process_frame():
     if 'user_email' not in session: return jsonify({"status": "error"})
@@ -180,34 +182,41 @@ def process_frame():
         img_arr = np.frombuffer(binary, np.uint8)
         frame = cv2.imdecode(img_arr, cv2.IMREAD_COLOR)
         
-        # Resize for Speed
-        frame = cv2.resize(frame, (320, 240))
+        # Super Small Resize (RAM Saving)
+        frame = cv2.resize(frame, (240, 180))
 
         status = "Focused ✅"; color = "#28a745"; alert = ""
 
         # Face Logic
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         if face_mesh:
-            results = face_mesh.process(rgb)
-            if results.multi_face_landmarks:
-                nose_x = results.multi_face_landmarks[0].landmark[1].x
-                if nose_x < 0.2: alert = "Looking Right"
-                elif nose_x > 0.8: alert = "Looking Left"
-            else: alert = "Face Missing"
+            try:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results = face_mesh.process(rgb)
+                if results.multi_face_landmarks:
+                    nose_x = results.multi_face_landmarks[0].landmark[1].x
+                    if nose_x < 0.2: alert = "Looking Right"
+                    elif nose_x > 0.8: alert = "Looking Left"
+                else: alert = "Face Missing"
+            except: pass # Skip if MediaPipe glitches
         
-        # YOLO Logic
+        # YOLO Logic (Run only if RAM permits and no alert yet)
         if yolo_model and not alert:
-            yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
-            for r in yolo_res:
-                if len(r.boxes) > 0: alert = "Mobile Phone"
+            try:
+                yolo_res = yolo_model(frame, verbose=False, classes=[67], conf=0.3)
+                for r in yolo_res:
+                    if len(r.boxes) > 0: alert = "Mobile Phone"
+            except: pass # Skip if YOLO glitches
 
         if alert:
             status = f"⚠️ {alert.upper()}"; color = "#dc3545"
             log_violation_db(session['user_email'], alert)
         
+        # Force Clean RAM
+        gc.collect()
+
         return jsonify({"status": status, "color": color})
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Frame Error: {e}")
         return jsonify({"status": "Active...", "color": "orange"})
 
 @app.route('/record_tab_switch', methods=['POST'])
@@ -215,7 +224,7 @@ def record_tab_switch():
     log_violation_db(session['user_email'], "Tab Switched")
     return jsonify({"status": "recorded"})
 
-# --- EMAIL (SSL Port 465) ---
+# --- EMAIL ---
 @app.route('/submit_exam', methods=['POST'])
 def submit_exam():
     if 'user_email' not in session: return jsonify({"status": "error"})
@@ -251,7 +260,7 @@ def submit_exam():
 
     except Exception as e:
         print(f"Email Error: {e}")
-        return jsonify({"status": "success", "message": f"Submitted (Email Error: {e})"})
+        return jsonify({"status": "success", "message": "Submitted (Email Failed)"})
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 5000))
