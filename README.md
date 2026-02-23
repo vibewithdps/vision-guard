@@ -29,4 +29,4 @@ VisionGuard is an automated AI-based proctoring system designed to monitor onlin
 3.  Open browser at: `http://127.0.0.1:5001`
 
 ---
-*Developed by [Aapka Naam]*
+*Developed by DPS
